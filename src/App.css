@@ -1,7 +1,11 @@
 /* ─── CXR Benchmark · Refined UI ─── */
 @import url('https://cdn.jsdelivr.net/gh/lazywasabi/thai-web-fonts@7/fonts/LINESeedSansTH/LINESeedSansTH.css');
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
-
+#root {
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+}
 :root {
   /* ─ surfaces ─ */
   --bg:        #0a0b0d;
