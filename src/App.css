@@ -277,6 +277,114 @@ body {
   font-weight: 600;
 }
 
+/* ─── Score card · split STD/CoT ─── */
+.score-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  margin-top: 0.25rem;
+  position: relative;
+}
+.score-split::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0.5rem;
+  bottom: 0.5rem;
+  width: 1px;
+  background: var(--rule);
+}
+.score-half {
+  padding: 0 0.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.score-half:first-child { padding-left: 0; }
+.score-half:last-child { padding-right: 0; align-items: flex-end; }
+.score-half-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--ink-faint);
+  letter-spacing: 0.1em;
+  font-weight: 600;
+  margin-bottom: 0.15rem;
+}
+.score-half .score-num {
+  font-size: 42px;
+  margin-top: 0;
+}
+.score-half .score-pct {
+  font-size: 11px;
+}
+.kappa-row.split {
+  position: relative;
+}
+.kappa-split {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+}
+.kappa-split .kappa-val {
+  min-width: 32px;
+  text-align: right;
+}
+.kappa-sep {
+  color: var(--ink-faint);
+  font-size: 10px;
+}
+.kappa-row-headers {
+  padding-top: 4px;
+  padding-bottom: 0;
+  border-top: none;
+  margin-top: -2px;
+}
+.kappa-mini-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--ink-faint);
+  letter-spacing: 0.1em;
+  font-weight: 600;
+  min-width: 32px;
+  text-align: right;
+}
+
+/* ─── Per-condition · split STD/CoT ─── */
+.cond-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  position: relative;
+}
+.cond-split::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--rule);
+}
+.cond-half {
+  padding: 0 0.85rem;
+  min-width: 0;
+}
+.cond-half:first-child { padding-left: 0; }
+.cond-half:last-child { padding-right: 0; }
+.cond-half-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--ink-faint);
+  letter-spacing: 0.1em;
+  font-weight: 600;
+  margin-bottom: 0.7rem;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px dashed var(--rule);
+}
+.cond-half .bar-label { width: 48px; }
+.cond-half .bar-val { width: 32px; }
+
 /* ─── Section label ─── */
 .section-label {
   font-family: var(--sans);
@@ -636,7 +744,6 @@ td {
   color: var(--ink-soft);
   font-weight: 600;
   letter-spacing: 0.04em;
-  flex: 1;
 }
 .total-badge {
   font-family: var(--sans);
@@ -728,7 +835,7 @@ td {
   font-family: var(--mono);
   font-size: 13px;
   font-weight: 700;
-  width: 46px;
+  width: 60px;
   text-align: right;
 }
 .calc-note {
@@ -786,6 +893,116 @@ td {
   font-size: 11px;
   color: var(--ink-mute);
   flex: 1;
+}
+
+/* ─── Prompt toggle (in break-card) ─── */
+.prompt-toggle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  margin-left: 4px;
+}
+.prompt-toggle-label {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  color: var(--ink-faint);
+  letter-spacing: 0.08em;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+.prompt-toggle-wrap {
+  display: inline-flex;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--bg-2);
+  cursor: pointer;
+}
+.prompt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  width: 32px;
+  padding: 0;
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+  border: none;
+  border-right: 1px solid var(--rule);
+  background: transparent;
+  color: var(--ink-mute);
+  overflow: hidden;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+  transition: width 0.2s linear, background 0.15s linear, color 0.15s linear;
+  pointer-events: none;
+  position: relative;
+}
+.prompt-btn:last-child { border-right: none; }
+.prompt-toggle-wrap:hover .prompt-btn:not(.active) { color: var(--ink-soft); }
+.prompt-btn.active {
+  background: var(--ink);
+  color: var(--bg);
+}
+.prompt-toggle-wrap:hover .prompt-btn.active { color: var(--bg); }
+
+.prompt-toggle-wrap:hover .prompt-btn:nth-child(1) { width: 84px; }
+.prompt-toggle-wrap:hover .prompt-btn:nth-child(2) { width: 130px; }
+
+.prompt-btn-short,
+.prompt-btn-long {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  transition: opacity 0.15s linear;
+}
+.prompt-btn-short {
+  opacity: 1;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+}
+.prompt-btn-long {
+  opacity: 0;
+}
+.prompt-toggle-wrap:hover .prompt-btn-short { opacity: 0; }
+.prompt-toggle-wrap:hover .prompt-btn-long { opacity: 1; }
+
+/* break-top layout */
+.break-top {
+  flex-wrap: wrap;
+}
+.break-top-left {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+}
+.break-top .total-badge {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* ─── Table cell · split total chip ─── */
+.total-chip-split {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.total-chip-sep {
+  color: var(--ink-faint);
+  font-weight: 400;
 }
 
 /* ─── JSON section ─── */
