@@ -74,7 +74,7 @@ body {
     radial-gradient(ellipse 80% 40% at 0% 100%, rgba(122,195,163,0.03), transparent 60%);
   min-height: 100vh;
   color: var(--ink);
-  padding: 0 0 4rem;
+  padding: 0 0 1rem;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   letter-spacing: -0.005em;
@@ -1089,6 +1089,22 @@ td {
   border-top: 1px dashed var(--rule);
   position: relative;
   z-index: 1;
+}
+.footer {
+  text-align: center;
+  padding: 1.5rem 2rem 1.5rem;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+.footer-link {
+  color: var(--ink-mute);
+  text-decoration: none;
+  border-bottom: 1px solid var(--ink-faint);
+  transition: color 0.15s, border-color 0.15s;
+}
+.footer-link:hover {
+  color: var(--ink);
+  border-color: var(--ink);
 }
 
 /* ─── JSON syntax colors (VSCode dark) ─── */

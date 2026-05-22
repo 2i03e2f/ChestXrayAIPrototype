@@ -81,7 +81,12 @@ const PROMPTS = ["std", "cot"];
 const COND_LABELS = { pneumothorax: "Pneumothorax", pleural_effusion: "Pleural Effusion", pulmonary_edema: "Pulmonary Edema" };
 const PROMPT_LABELS = { std: "Standard", cot: "Chain of Thought" };
 const PROMPT_SHORT = { std: "STD", cot: "CoT" };
-
+const MODEL_ERROR_RATES = {
+  "GPT-4o": { std: 0.20, cot: 0.15 },
+  "Claude":  { std: 0.28, cot: 0.18 },
+  "Gemini":  { std: 0.35, cot: 0.25 },
+  "Grok":    { std: 0.45, cot: 0.35 },
+};
 const MODEL_COLORS = {
   "GPT-4o": { dot: "#10a37f" },
   "Claude":  { dot: "#d97706" },
@@ -123,8 +128,8 @@ const MOCK_DATA = Array.from({ length: 20 }, (_, i) => {
   const models = {};
   MODELS.forEach(m => {
     models[m] = {
-      std: genPrompt(0.4),
-      cot: genPrompt(0.2),   // CoT slightly better on average
+      std: genPrompt(MODEL_ERROR_RATES[m].std),
+      cot: genPrompt(MODEL_ERROR_RATES[m].cot),
     };
   });
   return { id: `CXR_${String(i + 1).padStart(4, "0")}`, ground_truth: gt, models };
@@ -587,6 +592,12 @@ export default function App() {
           </div>
         </div>
       )}
+      <footer className="footer">
+          CXR Benchmark Prototype · Built by {" "}
+  <a href="https://github.com/2i03e2f" target="_blank" rel="noreferrer" className="footer-link">
+            2i03e2f
+  </a>{" "}
+      </footer>
     </div>
   );
 }
