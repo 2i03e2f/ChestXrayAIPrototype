@@ -79,6 +79,7 @@ const MODELS = ["GPT-4o", "Claude", "Gemini", "Grok"];
 const CONDS = ["pneumothorax", "pleural_effusion", "pulmonary_edema"];
 const PROMPTS = ["std", "cot"];
 const COND_LABELS = { pneumothorax: "Pneumothorax", pleural_effusion: "Pleural Effusion", pulmonary_edema: "Pulmonary Edema" };
+const COND_SHORT = { pneumothorax: "PTX", pleural_effusion: "EFF", pulmonary_edema: "EDEMA" };
 const PROMPT_LABELS = { std: "Standard", cot: "Chain of Thought" };
 const PROMPT_SHORT = { std: "STD", cot: "CoT" };
 const MODEL_ERROR_RATES = {
@@ -93,6 +94,20 @@ const MODEL_COLORS = {
   "Gemini":  { dot: "#4285f4" },
   "Grok":    { dot: "#8b5cf6" },
 };
+const TABS = [
+  ["dashboard", "Dashboard"],
+  ["table", "Image table"],
+  ["graphs", "Graphs"],
+  ["data", "Data"],
+];
+const TAB_HASH = {
+  dashboard: "",
+  table: "#image-table",
+  graphs: "#graphs",
+  data: "#data",
+};
+const HASH_TAB = Object.fromEntries(Object.entries(TAB_HASH).map(([key, hash]) => [hash, key]));
+const tabFromHash = () => HASH_TAB[window.location.hash] || "dashboard";
 
 /* ─── Scoring ─── */
 function classScore(pred, gt) {
@@ -248,14 +263,12 @@ function BreakCard({ model, modelData, gt }) {
 }
 
 /* ─── Detail panel ─── */
-function DetailPanel({ row }) {
+function DetailContent({ row }) {
   const [detailTab, setDetailTab] = useState("breakdown");
   const gt = row.ground_truth;
 
   return (
-    <tr>
-      <td colSpan={MODELS.length + 2} className="detail-td">
-        <div className="detail-wrap">
+    <div className="detail-wrap">
           <div className="detail-header">
             <span className="detail-id">{row.id} - detailed scoring รายละเอียดการนับสกอ</span>
             <div className="detail-tabs">
@@ -324,17 +337,187 @@ function DetailPanel({ row }) {
               </div>
             </div>
           )}
-        </div>
+    </div>
+  );
+}
+
+function DetailPanel({ row }) {
+  return (
+    <tr>
+      <td colSpan={MODELS.length + 2} className="detail-td">
+        <DetailContent row={row} />
       </td>
     </tr>
   );
 }
 
 /* ─── App ─── */
+function GraphsPage() {
+  return (
+    <div className="page-wrap graphs-wrap">
+      <div className="section-label">Graphs</div>
+      <div className="graph-placeholder">
+        <div className="graph-axis">
+          {MODELS.map(m => (
+            <div key={m} className="graph-stub-row">
+              <span className="model-dot" style={{ background: MODEL_COLORS[m].dot }} />
+              <span>{m}</span>
+              <div className="graph-stub-track">
+                <div className="graph-stub-fill" style={{ width: `${parseFloat(ACCURACY[m].std) * 100}%`, background: MODEL_COLORS[m].dot }} />
+              </div>
+              <span className="bar-val">{ACCURACY[m].std}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ModelAnswerTable({ model, prompt }) {
+  return (
+    <section className="data-table-card">
+      <div className="data-table-title">
+        <span className="model-dot" style={{ background: MODEL_COLORS[model].dot }} />
+        <span>{model}</span>
+        <span className="prompt-chip">{PROMPT_SHORT[prompt]}</span>
+      </div>
+      <div className="ground-table-scroll">
+        <table className="ground-table data-table">
+          <thead>
+            <tr>
+              <th>Image</th>
+              <th>PTX</th>
+              <th>EFF</th>
+              <th>EDEMA</th>
+              <th>Sev</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {MOCK_DATA.map(row => {
+              const answer = row.models[model][prompt];
+              const total = totalScore(answer, row.ground_truth);
+              return (
+                <tr key={`${model}-${prompt}-${row.id}`}>
+                  <td><span className="img-id">{row.id}</span></td>
+                  {CONDS.map(cond => (
+                    <td key={cond}>{pill(answer[cond])}</td>
+                  ))}
+                  <td><span className="gt-sev">{answer.severity}/5</span></td>
+                  <td><span className="calc-val" style={{ color: scoreColor(total) }}>{total}</span></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+const groundTruthData = () => Object.fromEntries(MOCK_DATA.map(row => [row.id, row.ground_truth]));
+
+const rawResponsesData = () => Object.fromEntries(MOCK_DATA.map(row => [row.id, row.models]));
+
+const scoresData = () => Object.fromEntries(MOCK_DATA.map(row => [
+  row.id,
+  Object.fromEntries(MODELS.map(model => [
+    model,
+    Object.fromEntries(PROMPTS.map(prompt => {
+      const answer = row.models[model][prompt];
+      return [prompt, {
+        pneumothorax: classScore(answer.pneumothorax, row.ground_truth.pneumothorax),
+        pleural_effusion: classScore(answer.pleural_effusion, row.ground_truth.pleural_effusion),
+        pulmonary_edema: classScore(answer.pulmonary_edema, row.ground_truth.pulmonary_edema),
+        severity: sevScore(answer.severity, row.ground_truth.severity),
+        total: totalScore(answer, row.ground_truth),
+      }];
+    })),
+  ])),
+]));
+
+function GroundTruthPage() {
+  const groundTruthJson = JSON.stringify(groundTruthData(), null, 2);
+  const rawResponsesJson = JSON.stringify(rawResponsesData(), null, 2);
+  const scoresJson = JSON.stringify(scoresData(), null, 2);
+
+  return (
+    <div className="page-wrap ground-wrap">
+      <div className="section-label">Ground truth</div>
+      <section className="data-table-card data-table-card-full">
+        <div className="data-table-title">Ground truth labels</div>
+        <div className="ground-table-scroll">
+          <table className="ground-table data-table">
+            <thead>
+              <tr>
+                <th>Image</th>
+                {CONDS.map(cond => <th key={cond}>{COND_LABELS[cond]}</th>)}
+                <th>Severity</th>
+              </tr>
+            </thead>
+            <tbody>
+              {MOCK_DATA.map(row => (
+                <tr key={`ground-${row.id}`}>
+                  <td><span className="img-id">{row.id}</span></td>
+                  {CONDS.map(cond => (
+                    <td key={cond}>{pill(row.ground_truth[cond])}</td>
+                  ))}
+                  <td><span className="gt-sev">sev {row.ground_truth.severity}/5</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <div className="data-section">
+        <div className="section-label">Standard prompt answers</div>
+        <div className="data-table-grid">
+          {MODELS.map(model => <ModelAnswerTable key={`std-${model}`} model={model} prompt="std" />)}
+        </div>
+      </div>
+
+      <div className="data-section">
+        <div className="section-label">Chain-of-thought prompt answers</div>
+        <div className="data-table-grid">
+          {MODELS.map(model => <ModelAnswerTable key={`cot-${model}`} model={model} prompt="cot" />)}
+        </div>
+      </div>
+
+      <div className="ground-json">
+        <div className="section-label">JSON data</div>
+        <JsonFileBlock
+          filename="ground_truth.json"
+          desc="Ground truth data used by the image table"
+          code={groundTruthJson}
+        />
+        <JsonFileBlock
+          filename="raw_responses.json"
+          desc="All model responses grouped by image, model, and prompt"
+          code={rawResponsesJson}
+        />
+        <JsonFileBlock
+          filename="scores.json"
+          desc="Per-condition, severity, and total scores calculated from the image table data"
+          code={scoresJson}
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
-  const [tab, setTab] = useState("dashboard");
+  const [tab, setTab] = useState(tabFromHash);
   const [selected, setSelected] = useState(null);
   const [filter, setFilter] = useState("all");
+
+  const switchTab = (nextTab) => {
+    setTab(nextTab);
+    if (window.location.hash !== TAB_HASH[nextTab]) {
+      history.replaceState(null, "", `${window.location.pathname}${window.location.search}${TAB_HASH[nextTab]}`);
+    }
+  };
 
   const filtered = filter === "all" ? MOCK_DATA : MOCK_DATA.filter(d => {
     const hasError = MODELS.some(m =>
@@ -352,8 +535,8 @@ export default function App() {
           <div className="header-sub">Chest X-ray · {MOCK_DATA.length} images · 4 models · 3 conditions · 2 prompts</div>
         </div>
         <div className="tabs">
-          {[["dashboard","Dashboard"],["table","Image table"]].map(([t,l]) => (
-            <button key={t} onClick={() => setTab(t)} className={`tab-btn${tab === t ? " active" : ""}`}>{l}</button>
+          {TABS.map(([t,l]) => (
+            <button key={t} onClick={() => switchTab(t)} className={`tab-btn${tab === t ? " active" : ""}`}>{l}</button>
           ))}
         </div>
       </div>
@@ -440,12 +623,12 @@ export default function App() {
 
           {/* JSON section */}
           <div style={{ marginTop: "1.75rem" }}>
-            <div className="section-label">Data structure - ตัวอย่างการเก็บข้อมูล</div>
+            <div className="section-label">Data structure Examples - ตัวอย่างการเก็บข้อมูล</div>
             <JsonFileBlock
               filename="ground_truth.json"
               desc="เซตของคำตอบที่ถูกต้อง มาตรฐานที่ใช้วัดผล"
               code={`{
-  "CXR_0001": {
+  "CXR_0001": { // image ID
     "pneumothorax":     "present",  // present | absent
     "pleural_effusion": "absent",
     "pulmonary_edema":  "absent",
@@ -462,7 +645,7 @@ export default function App() {
             />
             <JsonFileBlock
               filename="raw_responses.json"
-              desc="สิ่งที่ AI แต่ละตัวตอบมา raw แยกเป็น std/cot ตามprompt"
+              desc="สิ่งที่ AI แต่ละตัวตอบมา แยกเป็น std/cot ตามprompt"
               code={`{
   "CXR_0001": {
     "GPT-4o": {
@@ -537,6 +720,7 @@ export default function App() {
             {[["all","All"],["wrong","Has errors"],["correct","All correct"]].map(([f,l]) => (
               <button key={f} onClick={() => setFilter(f)} className={`filter-btn${filter === f ? " active" : ""}`}>{l}</button>
             ))}
+            <span className="filter-note">[ all correct คือ ทุก model ตอบถูกทั้งหมด (ได้ 1 ทุกตัว) ]</span>
             <span className="filter-count">{filtered.length} images</span>
           </div>
           <div className="table-scroll">
@@ -561,8 +745,13 @@ export default function App() {
                         </div>
                       </td>
                       <td>
-                        <div className="gt-cell">
-                          {pill(row.ground_truth.pneumothorax)}
+                        <div className="gt-cell gt-cell-full">
+                          {CONDS.map(cond => (
+                            <div key={cond} className="gt-cond">
+                              <span className="gt-cond-label">{COND_SHORT[cond]}</span>
+                              {pill(row.ground_truth[cond])}
+                            </div>
+                          ))}
                           <span className="gt-sev">sev {row.ground_truth.severity}/5</span>
                         </div>
                       </td>
@@ -590,8 +779,67 @@ export default function App() {
               </tbody>
             </table>
           </div>
+          <div className="mobile-card-list">
+            {filtered.map(row => {
+              const isOpen = selected === row.id;
+              return (
+                <article
+                  key={`mobile-${row.id}`}
+                  className={`mobile-image-card${isOpen ? " selected" : ""}`}
+                  onClick={() => setSelected(isOpen ? null : row.id)}
+                >
+                  <div className="mobile-card-head">
+                    <span className="img-id">{row.id}</span>
+                    <span className="expand-icon" style={{ transform: isOpen ? "rotate(90deg)" : "rotate(0deg)" }}>›</span>
+                  </div>
+
+                  <div className="mobile-gt">
+                    <span className="mobile-section-label">Ground truth</span>
+                    <div className="gt-cell gt-cell-full">
+                      {CONDS.map(cond => (
+                        <div key={cond} className="gt-cond">
+                          <span className="gt-cond-label">{COND_SHORT[cond]}</span>
+                          {pill(row.ground_truth[cond])}
+                        </div>
+                      ))}
+                      <span className="gt-sev">sev {row.ground_truth.severity}/5</span>
+                    </div>
+                  </div>
+
+                  <div className="mobile-model-list">
+                    {MODELS.map(m => {
+                      const stdTotal = totalScore(row.models[m].std, row.ground_truth);
+                      const cotTotal = totalScore(row.models[m].cot, row.ground_truth);
+                      return (
+                        <div key={m} className="mobile-model-row">
+                          <span className="mobile-model-name">
+                            <span className="model-dot" style={{ background: MODEL_COLORS[m].dot }} />
+                            {m}
+                          </span>
+                          {pill(row.models[m].std.pneumothorax)}
+                          <span className="total-chip-split">
+                            <span style={{ color: scoreColor(stdTotal) }}>{stdTotal}</span>
+                            <span className="total-chip-sep">/</span>
+                            <span style={{ color: scoreColor(cotTotal) }}>{cotTotal}</span>
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {isOpen && (
+                    <div className="mobile-detail" onClick={(e) => e.stopPropagation()}>
+                      <DetailContent row={row} />
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
         </div>
       )}
+      {tab === "graphs" && <GraphsPage />}
+      {tab === "data" && <GroundTruthPage />}
       <footer className="footer">
           CXR Benchmark Prototype · Built by {" "}
   <a href="https://github.com/2i03e2f" target="_blank" rel="noreferrer" className="footer-link">
