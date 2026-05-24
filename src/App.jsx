@@ -1,5 +1,56 @@
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import "./App.css";
+
+/* Tracks which tabs have been viewed in this session — animations only fire on
+   the FIRST visit per tab per page load. Refresh resets back to false. */
+const SEEN = { dashboard: false, graphs: false, stdCharts: false, cotCharts: false };
+
+/* ─── Count-up hook ─── */
+function useCountUp(target, duration = 950, delay = 0, run = true) {
+  const n = parseFloat(target);
+  const shouldRun = useRef(run);
+  const [val, setVal] = useState(shouldRun.current ? 0 : n);
+  useEffect(() => {
+    if (!shouldRun.current) return;
+    let raf, timer;
+    const start = () => {
+      const t0 = performance.now();
+      const tick = (now) => {
+        const p = Math.min((now - t0) / duration, 1);
+        const eased = 1 - Math.pow(1 - p, 3);
+        setVal(+(n * eased).toFixed(2));
+        if (p < 1) raf = requestAnimationFrame(tick);
+        else setVal(n);
+      };
+      raf = requestAnimationFrame(tick);
+    };
+    timer = delay > 0 ? setTimeout(start, delay * 1000) : (start(), undefined);
+    return () => { clearTimeout(timer); cancelAnimationFrame(raf); };
+  }, []); // eslint-disable-line
+  return val;
+}
+
+function AnimatedNum({ value, decimals = 2, duration = 950, delay = 0, run = true }) {
+  const v = useCountUp(parseFloat(value), duration, delay, run);
+  return <>{v.toFixed(decimals)}</>;
+}
+
+/* ─── In-view hook — uses callback ref so effect re-runs when element attaches ─── */
+function useInView(threshold = 0.12) {
+  const [el, setEl] = useState(null);
+  const ref = useCallback(node => setEl(node), []);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      ([e]) => { if (e.isIntersecting) { setVisible(true); obs.disconnect(); } },
+      { threshold }
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [el, threshold]);
+  return [ref, visible];
+}
 
 /* ─── JSON syntax highlighter ─── */
 function highlightJson(code) {
@@ -72,6 +123,26 @@ function JsonFileBlock({ filename, desc, code }) {
       )}
     </div>
   );
+}
+
+import gpt4oIcon from "./assets/models/gpt4o.svg";
+import claudeIcon from "./assets/models/claude.svg";
+import geminiIcon from "./assets/models/gemini.svg";
+import grokIcon from "./assets/models/grok.svg";
+
+const MODEL_ICONS = {
+  "GPT-4o": gpt4oIcon,
+  "Claude": claudeIcon,
+  "Gemini": geminiIcon,
+  "Grok":   grokIcon,
+};
+const INVERT_ON_DARK = new Set(["GPT-4o", "Grok"]);
+
+function ModelIcon({ model, size = 14 }) {
+  const src = MODEL_ICONS[model];
+  if (!src) return <span className="model-dot" style={{ background: MODEL_COLORS[model]?.dot }} />;
+  const cls = "model-icon" + (INVERT_ON_DARK.has(model) ? " invert" : "");
+  return <img src={src} alt={model} width={size} height={size} className={cls} />;
 }
 
 /* ─── Constants ─── */
@@ -232,7 +303,7 @@ function BreakCard({ model, modelData, gt }) {
     <div className="break-card">
       <div className="break-top">
         <div className="break-top-left">
-          <span className="model-dot" style={{ background: MODEL_COLORS[model].dot }} />
+          <ModelIcon model={model} />
           <span className="break-name">{model}</span>
           <PromptToggle value={prompt} onChange={setPrompt} />
         </div>
@@ -270,7 +341,7 @@ function DetailContent({ row }) {
   return (
     <div className="detail-wrap">
           <div className="detail-header">
-            <span className="detail-id">{row.id} - detailed scoring รายละเอียดการนับสกอ</span>
+            <span className="detail-id">{row.id} - detailed scoring รายละเอียด</span>
             <div className="detail-tabs">
               {["breakdown", "calculation"].map(t => (
                 <button key={t} onClick={() => setDetailTab(t)}
@@ -296,7 +367,7 @@ function DetailContent({ row }) {
                 <div className="calc-table">
                   <div className="calc-row"><span className="calc-case">Prediction = Ground truth</span><span className="calc-val" style={{ color: "#6ee7b7" }}>1.0</span><span className="calc-note">exact match</span></div>
                   <div className="calc-row"><span className="calc-case">Prediction ≠ Ground truth</span><span className="calc-val" style={{ color: "#f87171" }}>0.0</span><span className="calc-note">wrong</span></div>
-                  <div className="calc-row"><span className="calc-case" style={{ fontStyle: "italic", color: "var(--ink-mute)" }}>ใช้ระบบ binary: ตอบถูก=1 ตอบผิด=0 ไม่มีคะแนนกลาง เพราะต้องการคำตอบตัดสินใจชัดเจน</span></div>
+                  <div className="calc-row"><span className="calc-case" style={{ fontStyle: "italic", color: "var(--ink-mute)" }}>ใช้ระบบ binary: ตอบถูก=1 ตอบผิด=0 ไม่มีคะแนนกลาง เพราะต้องการคำตอบตัดสินใจชัดเจนของ AI</span></div>
                 </div>
               </div>
               <div className="calc-section">
@@ -327,7 +398,7 @@ function DetailContent({ row }) {
                   const total = totalScore(mo, gt);
                   return (
                     <div key={m} className="calc-model-row">
-                      <span className="model-dot" style={{ background: MODEL_COLORS[m].dot }} />
+                      <ModelIcon model={m} />
                       <span className="calc-model-name">{m}</span>
                       <span className="calc-eq">({classAvg} + {ss}) ÷ 2</span>
                       <span className="calc-val" style={{ color: scoreColor(total) }}>= {total}</span>
@@ -351,24 +422,255 @@ function DetailPanel({ row }) {
   );
 }
 
+/* ─── Animated SVG path (stroke-dashoffset draw effect) ─── */
+function AnimatedPath({ d, stroke, strokeWidth = 1.8, opacity = 1, delay = 0, animate = true }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (!animate) {
+      el.style.strokeDasharray = "";
+      el.style.strokeDashoffset = "";
+      el.style.transition = "none";
+      return;
+    }
+    const len = el.getTotalLength();
+    el.style.strokeDasharray = len;
+    el.style.strokeDashoffset = len;
+    el.style.transition = "none";
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!ref.current) return;
+        el.style.transition = `stroke-dashoffset 1.1s cubic-bezier(0.4,0,0.2,1) ${delay}s`;
+        el.style.strokeDashoffset = 0;
+      });
+    });
+  }, [d, animate]); // eslint-disable-line
+  return <path ref={ref} d={d} fill="none" stroke={stroke} strokeWidth={strokeWidth} opacity={opacity} />;
+}
+
+/* ─── Per-model line chart with hover tooltip ─── */
+function ModelLineChart({ model, prompt }) {
+  const seenKey = prompt === "std" ? "stdCharts" : "cotCharts";
+  const doAnimate = useRef(!SEEN[seenKey]);
+  useEffect(() => { SEEN[seenKey] = true; }, []); // eslint-disable-line
+  const [hover, setHover] = useState(null);
+
+  const W = 560, H = 200;
+  const ML = 54, MR = 20, MT = 16, MB = 44;
+  const inW = W - ML - MR, inH = H - MT - MB;
+
+  const scores = MOCK_DATA.map(row => totalScore(row.models[model][prompt], row.ground_truth));
+  const px = (i) => ML + (i / (MOCK_DATA.length - 1)) * inW;
+  const py = (v) => MT + inH * (1 - v);
+  const yTicks = [0, 0.25, 0.5, 0.75, 1.0];
+  const d = scores.map((s, i) => `${i === 0 ? "M" : "L"}${px(i).toFixed(1)},${py(s).toFixed(1)}`).join(" ");
+
+  const handleMove = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const svgX = ((e.clientX - rect.left) / rect.width) * W;
+    if (svgX < ML || svgX > ML + inW) { setHover(null); return; }
+    let ni = 0, nd = Infinity;
+    for (let i = 0; i < MOCK_DATA.length; i++) {
+      const dist = Math.abs(px(i) - svgX);
+      if (dist < nd) { nd = dist; ni = i; }
+    }
+    setHover({ i: ni, x: px(ni), y: py(scores[ni]), s: scores[ni], id: MOCK_DATA[ni].id });
+  };
+
+  const TW = 110, TH = 58;
+  const tx = hover ? (hover.x + 12 + TW > W - MR ? hover.x - 12 - TW : hover.x + 12) : 0;
+  const ty = hover ? Math.max(MT, Math.min(hover.y - TH / 2, MT + inH - TH)) : 0;
+
+  return (
+    <div className="model-line-chart">
+      <div className="model-line-title">
+        <ModelIcon model={model} />
+        {model}
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" className="chart-svg"
+        onMouseMove={handleMove} onMouseLeave={() => setHover(null)}
+        style={{ cursor: "crosshair" }}>
+        {yTicks.map(t => (
+          <g key={t}>
+            <line x1={ML} y1={py(t)} x2={ML + inW} y2={py(t)} stroke="rgba(255,255,255,0.06)" strokeWidth={1} />
+            <text x={ML - 8} y={py(t) + 5} textAnchor="end" fontSize={13} fill="var(--ink-mute)">{t.toFixed(1)}</text>
+          </g>
+        ))}
+        <line x1={ML} y1={MT + inH} x2={ML + inW} y2={MT + inH} stroke="rgba(255,255,255,0.18)" strokeWidth={1} />
+        <AnimatedPath d={d} stroke={MODEL_COLORS[model].dot} strokeWidth={2} animate={doAnimate.current} />
+        {hover && (
+          <>
+            <line x1={hover.x} y1={MT} x2={hover.x} y2={MT + inH} stroke="rgba(255,255,255,0.18)" strokeWidth={1} strokeDasharray="3,3" />
+            <circle cx={hover.x} cy={hover.y} r={5} fill={MODEL_COLORS[model].dot} stroke="var(--bg)" strokeWidth={2} />
+            <rect x={tx} y={ty} width={TW} height={TH} rx={3} fill="var(--paper)" stroke="var(--rule)" />
+            <text x={tx + TW / 2} y={ty + 19} textAnchor="middle" className="chart-tip-label">{hover.id}</text>
+            <text x={tx + TW / 2} y={ty + 39} textAnchor="middle" className="chart-tip-value" fill={MODEL_COLORS[model].dot}>{hover.s.toFixed(2)}</text>
+          </>
+        )}
+        {MOCK_DATA.map((_, i) => {
+          if (i % 4 !== 0 && i !== MOCK_DATA.length - 1) return null;
+          return <text key={i} x={px(i)} y={H - MB + 18} textAnchor="middle" fontSize={12} fill="var(--ink-mute)">{i + 1}</text>;
+        })}
+      </svg>
+    </div>
+  );
+}
+
 /* ─── App ─── */
 function GraphsPage() {
+  const [stdOpen, setStdOpen] = useState(false);
+  const [cotOpen, setCotOpen] = useState(false);
+  const doAnimate = useRef(!SEEN.graphs);
+  const [barsVisible, setBarsVisible] = useState(SEEN.graphs);
+  useEffect(() => {
+    if (!doAnimate.current) { setBarsVisible(true); return; }
+    SEEN.graphs = true;
+    const raf = requestAnimationFrame(() => setBarsVisible(true));
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  /* bar chart constants */
+  const BW = 640, BH = 260;
+  const BML = 56, BMR = 20, BMT = 20, BMB = 58;
+  const bInW = BW - BML - BMR;
+  const bInH = BH - BMT - BMB;
+  const groupW = bInW / MODELS.length;
+  const bw = Math.min(groupW * 0.28, 34);
+  const bgap = 5;
+  const bY = (v) => BMT + bInH * (1 - v);
+
+  /* line chart constants */
+  const LW = 640, LH = 220;
+  const LML = 56, LMR = 20, LMT = 20, LMB = 54;
+  const lInW = LW - LML - LMR;
+  const lInH = LH - LMT - LMB;
+  const lX = (i) => LML + (i / (MOCK_DATA.length - 1)) * lInW;
+  const lY = (v) => LMT + lInH * (1 - v);
+  const makePath = (model, prompt) =>
+    MOCK_DATA.map((row, i) => {
+      const s = totalScore(row.models[model][prompt], row.ground_truth);
+      return `${i === 0 ? "M" : "L"}${lX(i).toFixed(1)},${lY(s).toFixed(1)}`;
+    }).join(" ");
+
+  const yTicks = [0, 0.25, 0.5, 0.75, 1.0];
+
   return (
     <div className="page-wrap graphs-wrap">
-      <div className="section-label">Graphs</div>
-      <div className="graph-placeholder">
-        <div className="graph-axis">
-          {MODELS.map(m => (
-            <div key={m} className="graph-stub-row">
-              <span className="model-dot" style={{ background: MODEL_COLORS[m].dot }} />
-              <span>{m}</span>
-              <div className="graph-stub-track">
-                <div className="graph-stub-fill" style={{ width: `${parseFloat(ACCURACY[m].std) * 100}%`, background: MODEL_COLORS[m].dot }} />
-              </div>
-              <span className="bar-val">{ACCURACY[m].std}</span>
-            </div>
+      <div className="graphs-inner">
+      {/* ── Bar chart ── */}
+      <div className="section-label">Average total score by model</div>
+      <div className="graph-card">
+        <svg viewBox={`0 0 ${BW} ${BH}`} width="100%" className="chart-svg">
+          {yTicks.map(t => (
+            <g key={t}>
+              <line x1={BML} y1={bY(t)} x2={BML + bInW} y2={bY(t)} stroke="rgba(255,255,255,0.06)" strokeWidth={1} />
+              <text x={BML - 8} y={bY(t) + 5} textAnchor="end" fontSize={13} fill="var(--ink-mute)">{t.toFixed(2)}</text>
+            </g>
           ))}
+          <line x1={BML} y1={BMT + bInH} x2={BML + bInW} y2={BMT + bInH} stroke="rgba(255,255,255,0.15)" strokeWidth={1} />
+          {MODELS.map((m, mi) => {
+            const cx = BML + groupW * (mi + 0.5);
+            const stdV = parseFloat(ACCURACY[m].std);
+            const cotV = parseFloat(ACCURACY[m].cot);
+            const stdX = cx - bw - bgap / 2;
+            const cotX = cx + bgap / 2;
+            return (
+              <g key={m}>
+                <rect className={`bar-svg-anim${barsVisible ? " bar-visible" : ""}`} style={{ "--bar-delay": `${mi * 0.12}s` }} x={stdX} y={bY(stdV)} width={bw} height={stdV * bInH} fill={MODEL_COLORS[m].dot} opacity={0.85} rx={2} />
+                <rect className={`bar-svg-anim${barsVisible ? " bar-visible" : ""}`} style={{ "--bar-delay": `${mi * 0.12 + 0.06}s` }} x={cotX} y={bY(cotV)} width={bw} height={cotV * bInH} fill={MODEL_COLORS[m].dot} opacity={0.35} rx={2} />
+                <g className={`bar-label-svg-anim${barsVisible ? " bar-visible" : ""}`} style={{ "--bl-delay": `${mi * 0.12 + 0.45}s` }}>
+                  <text x={stdX + bw / 2} y={bY(stdV) - 6} textAnchor="middle" fontSize={12} fill={MODEL_COLORS[m].dot}><AnimatedNum value={stdV} duration={700} delay={mi * 0.12} run={doAnimate.current} /></text>
+                  <text x={cotX + bw / 2} y={bY(cotV) - 6} textAnchor="middle" fontSize={12} fill={MODEL_COLORS[m].dot} opacity={0.7}><AnimatedNum value={cotV} duration={700} delay={mi * 0.12 + 0.06} run={doAnimate.current} /></text>
+                </g>
+                <text x={cx} y={BH - BMB + 20} textAnchor="middle" fontSize={13} fill="var(--ink-soft)">{m}</text>
+              </g>
+            );
+          })}
+          <rect x={BML} y={BH - 18} width={14} height={9} fill="white" opacity={0.7} rx={1} />
+          <text x={BML + 18} y={BH - 9} fontSize={12} fill="var(--ink-mute)">STD</text>
+          <rect x={BML + 54} y={BH - 18} width={14} height={9} fill="white" opacity={0.3} rx={1} />
+          <text x={BML + 72} y={BH - 9} fontSize={12} fill="var(--ink-mute)">CoT</text>
+        </svg>
+      </div>
+
+      {/* ── Line chart STD ── */}
+      <div className="section-label" style={{ marginTop: "1.5rem" }}>Score per image - Standard prompt</div>
+      <div className="graph-card">
+        <svg viewBox={`0 0 ${LW} ${LH}`} width="100%" className="chart-svg">
+          {yTicks.map(t => (
+            <g key={t}>
+              <line x1={LML} y1={lY(t)} x2={LML + lInW} y2={lY(t)} stroke="rgba(255,255,255,0.06)" strokeWidth={1} />
+              <text x={LML - 8} y={lY(t) + 5} textAnchor="end" fontSize={13} fill="var(--ink-mute)">{t.toFixed(1)}</text>
+            </g>
+          ))}
+          <line x1={LML} y1={LMT + lInH} x2={LML + lInW} y2={LMT + lInH} stroke="rgba(255,255,255,0.15)" strokeWidth={1} />
+          {MODELS.map((m, mi) => (
+            <AnimatedPath key={m} d={makePath(m, "std")} stroke={MODEL_COLORS[m].dot} strokeWidth={1.8} opacity={0.85} delay={mi * 0.15} animate={doAnimate.current} />
+          ))}
+          {MOCK_DATA.map((row, i) => {
+            if (i % 4 !== 0 && i !== MOCK_DATA.length - 1) return null;
+            return (
+              <text key={i} x={lX(i)} y={LH - LMB + 18} textAnchor="middle" fontSize={12} fill="var(--ink-mute)">{i + 1}</text>
+            );
+          })}
+          <text x={LML + lInW / 2} y={LH - LMB + 34} textAnchor="middle" fontSize={12} fill="var(--ink-mute)">image #</text>
+          {MODELS.map((m, mi) => (
+            <g key={m}>
+              <line x1={LML + mi * 110} y1={LH - 13} x2={LML + mi * 110 + 20} y2={LH - 13} stroke={MODEL_COLORS[m].dot} strokeWidth={2} />
+              <text x={LML + mi * 110 + 24} y={LH - 8} fontSize={12} fill="var(--ink-mute)">{m}</text>
+            </g>
+          ))}
+        </svg>
+      </div>
+      <button className="expand-detail-btn" onClick={() => setStdOpen(v => !v)}>
+        <span className="expand-icon" style={{ transform: stdOpen ? "rotate(90deg)" : "rotate(0deg)" }}>›</span>
+        {stdOpen ? "ซ่อนรายละเอียด" : "ดูรายละเอียดแต่ละ model"}
+      </button>
+      {stdOpen && (
+        <div className="model-charts-grid">
+          {MODELS.map(m => <ModelLineChart key={m} model={m} prompt="std" />)}
         </div>
+      )}
+
+      {/* ── Line chart CoT ── */}
+      <div className="section-label" style={{ marginTop: "1.5rem" }}>Score per image - Chain of Thought prompt</div>
+      <div className="graph-card">
+        <svg viewBox={`0 0 ${LW} ${LH}`} width="100%" className="chart-svg">
+          {yTicks.map(t => (
+            <g key={t}>
+              <line x1={LML} y1={lY(t)} x2={LML + lInW} y2={lY(t)} stroke="rgba(255,255,255,0.06)" strokeWidth={1} />
+              <text x={LML - 8} y={lY(t) + 5} textAnchor="end" fontSize={13} fill="var(--ink-mute)">{t.toFixed(1)}</text>
+            </g>
+          ))}
+          <line x1={LML} y1={LMT + lInH} x2={LML + lInW} y2={LMT + lInH} stroke="rgba(255,255,255,0.15)" strokeWidth={1} />
+          {MODELS.map((m, mi) => (
+            <AnimatedPath key={m} d={makePath(m, "cot")} stroke={MODEL_COLORS[m].dot} strokeWidth={1.8} opacity={0.85} delay={mi * 0.15} animate={doAnimate.current} />
+          ))}
+          {MOCK_DATA.map((row, i) => {
+            if (i % 4 !== 0 && i !== MOCK_DATA.length - 1) return null;
+            return (
+              <text key={i} x={lX(i)} y={LH - LMB + 18} textAnchor="middle" fontSize={12} fill="var(--ink-mute)">{i + 1}</text>
+            );
+          })}
+          <text x={LML + lInW / 2} y={LH - LMB + 34} textAnchor="middle" fontSize={12} fill="var(--ink-mute)">image #</text>
+          {MODELS.map((m, mi) => (
+            <g key={m}>
+              <line x1={LML + mi * 110} y1={LH - 13} x2={LML + mi * 110 + 20} y2={LH - 13} stroke={MODEL_COLORS[m].dot} strokeWidth={2} />
+              <text x={LML + mi * 110 + 24} y={LH - 8} fontSize={12} fill="var(--ink-mute)">{m}</text>
+            </g>
+          ))}
+        </svg>
+      </div>
+      <button className="expand-detail-btn" onClick={() => setCotOpen(v => !v)}>
+        <span className="expand-icon" style={{ transform: cotOpen ? "rotate(90deg)" : "rotate(0deg)" }}>›</span>
+        {cotOpen ? "ซ่อนรายละเอียด" : "ดูรายละเอียดแต่ละ model"}
+      </button>
+      {cotOpen && (
+        <div className="model-charts-grid">
+          {MODELS.map(m => <ModelLineChart key={m} model={m} prompt="cot" />)}
+        </div>
+      )}
       </div>
     </div>
   );
@@ -378,7 +680,7 @@ function ModelAnswerTable({ model, prompt }) {
   return (
     <section className="data-table-card">
       <div className="data-table-title">
-        <span className="model-dot" style={{ background: MODEL_COLORS[model].dot }} />
+        <ModelIcon model={model} />
         <span>{model}</span>
         <span className="prompt-chip">{PROMPT_SHORT[prompt]}</span>
       </div>
@@ -437,6 +739,117 @@ const scoresData = () => Object.fromEntries(MOCK_DATA.map(row => [
   ])),
 ]));
 
+/* ─── Tree node for the Tree view mode ─── */
+function TreeNode({ keyName, value, depth, defaultOpen = false }) {
+  const isObj = value !== null && typeof value === "object";
+  const [open, setOpen] = useState(defaultOpen || depth < 1);
+  if (!isObj) {
+    const t = value === null ? "null" : typeof value;
+    const display = value === null ? "null" : t === "string" ? `"${value}"` : String(value);
+    return (
+      <div className="jm-tree-row" style={{ paddingLeft: 16 + depth * 18 }}>
+        <span className="jm-tree-chev leaf">·</span>
+        {keyName !== undefined && (
+          <>
+            <span className="jm-tree-key">"{keyName}"</span>
+            <span className="jm-tree-colon">:</span>
+          </>
+        )}
+        <span className={`jm-tree-val ${t}`}>{display}</span>
+      </div>
+    );
+  }
+  const isArr = Array.isArray(value);
+  const entries = isArr ? value.map((v, i) => [i, v]) : Object.entries(value);
+  const summary = isArr ? `Array(${entries.length})` : `{${entries.length} keys}`;
+  return (
+    <>
+      <div className="jm-tree-row collapsible" style={{ paddingLeft: 16 + depth * 18 }} onClick={() => setOpen(o => !o)}>
+        <span className={`jm-tree-chev${open ? " open" : ""}`}>▸</span>
+        {keyName !== undefined && (
+          <>
+            <span className="jm-tree-key">"{keyName}"</span>
+            <span className="jm-tree-colon">:</span>
+          </>
+        )}
+        <span style={{ color: "var(--ink-mute)" }}>{isArr ? "[" : "{"}</span>
+        {!open && <span className="jm-tree-summary">{summary}{isArr ? "]" : "}"}</span>}
+      </div>
+      {open && entries.map(([k, v]) => (
+        <TreeNode key={k} keyName={isArr ? undefined : k} value={v} depth={depth + 1} />
+      ))}
+      {open && (
+        <div className="jm-tree-row" style={{ paddingLeft: 16 + depth * 18 }}>
+          <span className="jm-tree-chev leaf">·</span>
+          <span style={{ color: "var(--ink-mute)" }}>{isArr ? "]" : "}"}</span>
+        </div>
+      )}
+    </>
+  );
+}
+
+/* ─── Split-view JSON viewer (sidebar + code/tree panel) ─── */
+function JsonFilesViewer({ files }) {
+  // files: [{ name, desc, code, data }]
+  const [active, setActive] = useState(0);
+  const [mode, setMode] = useState("code"); // "code" | "tree"
+
+  const f = files[active];
+  const lines = f.code.split("\n");
+
+  return (
+    <div className="jm-split">
+      <aside className="jm-split-side">
+        <div className="jm-split-side-label">files</div>
+        {files.map((file, i) => (
+          <button
+            key={file.name}
+            className={`jm-split-tab${active === i ? " active" : ""}`}
+            onClick={() => setActive(i)}
+          >
+            <span className="jm-st-icon">{'{}'}</span>
+            <span className="jm-st-name">{file.name}</span>
+            <span className="jm-st-size">{(file.code.length / 1024).toFixed(1)}kb</span>
+          </button>
+        ))}
+      </aside>
+      <div className="jm-split-main">
+        <div className="jm-split-head">
+          <span className="jm-split-fname">{f.name}</span>
+          <span className="jm-split-meta">{lines.length} lines</span>
+          <div className="jm-split-mode" role="tablist" aria-label="View mode">
+            <button className={mode === "code" ? "active" : ""} onClick={() => setMode("code")}>Code</button>
+            <button className={mode === "tree" ? "active" : ""} onClick={() => setMode("tree")}>Tree</button>
+          </div>
+        </div>
+        {mode === "code" ? (
+          <pre className="jm-split-body">
+            <div className="jm-num-block">
+              <div className="jm-num-gutter">
+                {lines.map((_, i) => <div key={i}>{i + 1}</div>)}
+              </div>
+              <div className="jm-num-code">
+                {lines.map((line, i) => {
+                  const tokens = highlightJson(line);
+                  return (
+                    <div key={i}>
+                      {tokens.map((t, j) => <span key={j} className={`tok-${t.type}`}>{t.text}</span>)}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </pre>
+        ) : (
+          <div className="jm-split-body is-tree">
+            <TreeNode value={f.data} depth={0} defaultOpen />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function GroundTruthPage() {
   const groundTruthJson = JSON.stringify(groundTruthData(), null, 2);
   const rawResponsesJson = JSON.stringify(rawResponsesData(), null, 2);
@@ -444,64 +857,47 @@ function GroundTruthPage() {
 
   return (
     <div className="page-wrap ground-wrap">
-      <div className="section-label">Ground truth</div>
-      <section className="data-table-card data-table-card-full">
-        <div className="data-table-title">Ground truth labels</div>
-        <div className="ground-table-scroll">
-          <table className="ground-table data-table">
-            <thead>
-              <tr>
-                <th>Image</th>
-                {CONDS.map(cond => <th key={cond}>{COND_LABELS[cond]}</th>)}
-                <th>Severity</th>
-              </tr>
-            </thead>
-            <tbody>
-              {MOCK_DATA.map(row => (
-                <tr key={`ground-${row.id}`}>
-                  <td><span className="img-id">{row.id}</span></td>
-                  {CONDS.map(cond => (
-                    <td key={cond}>{pill(row.ground_truth[cond])}</td>
-                  ))}
-                  <td><span className="gt-sev">sev {row.ground_truth.severity}/5</span></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <div className="gw-container">
+        <div className="section-label">Ground truth - ข้อมูลมาตรฐานสำหรับวัดผล</div>
+        <div className="gt-list">
+          {MOCK_DATA.map(row => (
+            <div key={`gt-${row.id}`} className="gt-list-card">
+              <span className="img-id">{row.id}</span>
+              <div className="gt-list-pills">
+                {CONDS.map(cond => (
+                  <span key={cond} className="gt-mini">
+                    <span className={`gt-mini-pill ${row.ground_truth[cond]}`} />
+                    {COND_SHORT[cond]}
+                  </span>
+                ))}
+              </div>
+              <span className="gt-sev-mini">{row.ground_truth.severity}/5</span>
+            </div>
+          ))}
         </div>
-      </section>
 
-      <div className="data-section">
-        <div className="section-label">Standard prompt answers</div>
-        <div className="data-table-grid">
-          {MODELS.map(model => <ModelAnswerTable key={`std-${model}`} model={model} prompt="std" />)}
+        <div className="data-section">
+          <div className="section-label">Standard prompt answers - คำตอบจาก Prompt แบบปกติ</div>
+          <div className="data-table-grid">
+            {MODELS.map(model => <ModelAnswerTable key={`std-${model}`} model={model} prompt="std" />)}
+          </div>
         </div>
-      </div>
 
-      <div className="data-section">
-        <div className="section-label">Chain-of-thought prompt answers</div>
-        <div className="data-table-grid">
-          {MODELS.map(model => <ModelAnswerTable key={`cot-${model}`} model={model} prompt="cot" />)}
+        <div className="data-section">
+          <div className="section-label">Chain-of-thought prompt answers - คำตอบจาก Prompt แบบ CoT</div>
+          <div className="data-table-grid">
+            {MODELS.map(model => <ModelAnswerTable key={`cot-${model}`} model={model} prompt="cot" />)}
+          </div>
         </div>
-      </div>
 
-      <div className="ground-json">
-        <div className="section-label">JSON data</div>
-        <JsonFileBlock
-          filename="ground_truth.json"
-          desc="Ground truth data used by the image table"
-          code={groundTruthJson}
-        />
-        <JsonFileBlock
-          filename="raw_responses.json"
-          desc="All model responses grouped by image, model, and prompt"
-          code={rawResponsesJson}
-        />
-        <JsonFileBlock
-          filename="scores.json"
-          desc="Per-condition, severity, and total scores calculated from the image table data"
-          code={scoresJson}
-        />
+        <div className="ground-json">
+          <div className="section-label">JSON data - ข้อมูลจัดเก็บแบบ JSON</div>
+          <JsonFilesViewer files={[
+            { name: "ground_truth.json",  desc: "Ground truth data used by the image table",                  code: groundTruthJson,  data: groundTruthData() },
+            { name: "raw_responses.json", desc: "All model responses grouped by image, model, and prompt",    code: rawResponsesJson, data: rawResponsesData() },
+            { name: "scores.json",        desc: "Per-condition, severity, and total scores",                  code: scoresJson,       data: scoresData() },
+          ]} />
+        </div>
       </div>
     </div>
   );
@@ -511,6 +907,19 @@ export default function App() {
   const [tab, setTab] = useState(tabFromHash);
   const [selected, setSelected] = useState(null);
   const [filter, setFilter] = useState("all");
+  const [condRef, condVisible] = useInView(0.1);
+  const [jsonRef, jsonVisible] = useInView(0.05);
+  const doAnimateCards = useRef(!SEEN.dashboard);
+  const [cardsVisible, setCardsVisible] = useState(SEEN.dashboard);
+  useEffect(() => {
+    if (!doAnimateCards.current) { setCardsVisible(true); return; }
+    SEEN.dashboard = true;
+    const raf = requestAnimationFrame(() => {
+      doAnimateCards.current = false;
+      setCardsVisible(true);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
   const switchTab = (nextTab) => {
     setTab(nextTab);
@@ -546,10 +955,10 @@ export default function App() {
 
           {/* Score cards: split STD vs CoT */}
           <div className="score-grid">
-            {MODELS.map(m => (
-              <div key={m} className="score-card">
+            {MODELS.map((m, mi) => (
+              <div key={m} className={`score-card${cardsVisible ? " card-visible" : ""}`} style={{ "--card-delay": `${mi * 0.1}s` }}>
                 <div className="score-top">
-                  <span className="model-dot" style={{ background: MODEL_COLORS[m].dot }} />
+                  <ModelIcon model={m} />
                   <span className="model-name">{m}</span>
                   {m === BEST && <span className="winner-badge">best</span>}
                 </div>
@@ -558,7 +967,7 @@ export default function App() {
                   {PROMPTS.map(p => (
                     <div key={p} className="score-half">
                       <div className="score-half-label">{PROMPT_SHORT[p]}</div>
-                      <div className="score-num">{ACCURACY[m][p]}<span className="score-pct">/1.0</span></div>
+                      <div className="score-num"><AnimatedNum value={parseFloat(ACCURACY[m][p])} run={doAnimateCards.current} /><span className="score-pct">/1.0</span></div>
                     </div>
                   ))}
                 </div>
@@ -567,17 +976,17 @@ export default function App() {
                 <div className="kappa-row split">
                   <span className="kappa-label">classification</span>
                   <div className="kappa-split">
-                    <span className="kappa-val">{avgClass(m, "std")}</span>
+                    <span className="kappa-val"><AnimatedNum value={parseFloat(avgClass(m, "std"))} run={doAnimateCards.current} /></span>
                     <span className="kappa-sep">|</span>
-                    <span className="kappa-val">{avgClass(m, "cot")}</span>
+                    <span className="kappa-val"><AnimatedNum value={parseFloat(avgClass(m, "cot"))} run={doAnimateCards.current} /></span>
                   </div>
                 </div>
                 <div className="kappa-row split">
                   <span className="kappa-label">severity kappa</span>
                   <div className="kappa-split">
-                    <span className="kappa-val">{avgSev(m, "std")}</span>
+                    <span className="kappa-val"><AnimatedNum value={parseFloat(avgSev(m, "std"))} run={doAnimateCards.current} /></span>
                     <span className="kappa-sep">|</span>
-                    <span className="kappa-val">{avgSev(m, "cot")}</span>
+                    <span className="kappa-val"><AnimatedNum value={parseFloat(avgSev(m, "cot"))} run={doAnimateCards.current} /></span>
                   </div>
                 </div>
                 <div className="kappa-row split kappa-row-headers">
@@ -593,40 +1002,42 @@ export default function App() {
           </div>
 
           {/* Per-condition: split STD vs CoT side by side */}
-          <div className="section-label">Per-condition accuracy</div>
-          <div className="cond-grid">
-            {CONDS.map(cond => (
-              <div key={cond} className="cond-card">
-                <div className="cond-title">{COND_LABELS[cond]}</div>
-                <div className="cond-split">
-                  {PROMPTS.map(p => (
-                    <div key={p} className="cond-half">
-                      <div className="cond-half-label">{PROMPT_SHORT[p]}</div>
-                      {MODELS.map(m => {
-                        const acc = condAcc(m, cond, p);
-                        return (
-                          <div key={m} className="bar-row">
-                            <span className="bar-label">{m}</span>
-                            <div className="bar-track">
-                              <div className="bar-fill" style={{ width: `${acc}%`, background: MODEL_COLORS[m].dot }} />
+          <div ref={condRef} className={`cond-section${condVisible ? " cond-visible" : ""}`}>
+            <div className="section-label">Per-condition accuracy - ความแม่นยำแต่ละภาวะ (%)</div>
+            <div className="cond-grid">
+              {CONDS.map(cond => (
+                <div key={cond} className="cond-card">
+                  <div className="cond-title">{COND_LABELS[cond]}</div>
+                  <div className="cond-split">
+                    {PROMPTS.map((p, pi) => (
+                      <div key={p} className="cond-half">
+                        <div className="cond-half-label">{PROMPT_SHORT[p]}</div>
+                        {MODELS.map((m, mi) => {
+                          const acc = condAcc(m, cond, p);
+                          return (
+                            <div key={m} className="bar-row">
+                              <span className="bar-label">{m}</span>
+                              <div className="bar-track">
+                                <div className="bar-fill" style={{ width: `${acc}%`, background: MODEL_COLORS[m].dot, "--bd": `${(mi + pi * 4) * 0.08}s` }} />
+                              </div>
+                              <span className="bar-val">{acc.toFixed(0)}%</span>
                             </div>
-                            <span className="bar-val">{acc.toFixed(0)}%</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ))}
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
 
           {/* JSON section */}
-          <div style={{ marginTop: "1.75rem" }}>
+          <div ref={jsonRef} className={`reveal-section${jsonVisible ? " visible" : ""}`} style={{ marginTop: "1.75rem" }}>
             <div className="section-label">Data structure Examples - ตัวอย่างการเก็บข้อมูล</div>
             <JsonFileBlock
               filename="ground_truth.json"
-              desc="เซตของคำตอบที่ถูกต้อง มาตรฐานที่ใช้วัดผล"
+              desc="data set ของคำตอบที่ถูกต้อง มาตรฐานที่ใช้วัดผล"
               code={`{
   "CXR_0001": { // image ID
     "pneumothorax":     "present",  // present | absent
@@ -668,7 +1079,7 @@ export default function App() {
             />
             <JsonFileBlock
               filename="scores.json"
-              desc="คะแนนที่คำนวณได้ ถ้าเปลี่ยนสูตรแค่ recalculate ไฟล์นี้ใหม่"
+              desc="คะแนนที่คำนวณมาได้ (ถ้าเปลี่ยนสูตรแค่ recalculate ไฟล์นี้ใหม่)"
               code={`{
   "CXR_0001": {
     "GPT-4o": {
@@ -692,21 +1103,21 @@ export default function App() {
             />
             <JsonFileBlock
               filename="metadata.json"
-              desc="ข้อมูลการทดลอง version ของแต่ละ model และ config ที่ใช้รัน"
+              desc="ข้อมูลการทดลอง, meta data ต่างๆ และ config ที่ใช้รัน"
               code={`{
-  "experiment_date": "2025-05-22",
-  "dataset": "NIH ChestX-ray14",
-  "total_images": 1000,
-  "runs_per_image": 5,
-  "models": {
+  "experiment_date": "2025-05-22",  // วันที่ทดลอง
+  "dataset": "NIH ChestX-ray14",    // data set ที่ใช้
+  "total_images": 1000,             // จำนวนภาพรวม
+  "runs_per_image": 5,              // จำนวนครั้งที่ให้ AI วิเคราะห์ซ้ำแต่ละภาพ
+  "models": {                       // รายละเอียดแต่ละ model
     "GPT-4o":  { "version": "gpt-4o-2024-11-20",        "temp": 0 },
     "Claude":  { "version": "claude-sonnet-4-20250514",  "temp": 0 },
     "Gemini":  { "version": "gemini-1.5-pro-002",        "temp": 0 },
     "Grok":    { "version": "grok-2-vision-1212",        "temp": 0 }
   },
   "prompts": {
-    "std": "Does this chest X-ray show the following...",
-    "cot": "Think step by step. First describe what you see..."
+    "std": "Does this chest X-ray show the following...",        //คำสั่ง prompt แบบปกติ standard
+    "cot": "Think step by step. First describe what you see..."  //คำสั่ง prompt แบบ chain-of-thought
   }
 }`}
             />
@@ -762,7 +1173,15 @@ export default function App() {
                         return (
                           <td key={m} style={{ background: avg === 1 ? "rgba(16,163,127,0.04)" : avg >= 0.7 ? "rgba(251,191,36,0.04)" : "rgba(220,38,38,0.04)" }}>
                             <div className="model-cell">
-                              {pill(row.models[m].std.pneumothorax)}
+                              <div className="cond-boxes">
+                                {CONDS.map(c => (
+                                  <span
+                                    key={c}
+                                    className={`cond-box cond-box-${row.models[m].std[c]}`}
+                                    title={`${COND_SHORT[c]}: ${row.models[m].std[c]}`}
+                                  />
+                                ))}
+                              </div>
                               <span className="total-chip-split">
                                 <span style={{ color: scoreColor(stdTotal) }}>{stdTotal}</span>
                                 <span className="total-chip-sep">/</span>
@@ -813,10 +1232,18 @@ export default function App() {
                       return (
                         <div key={m} className="mobile-model-row">
                           <span className="mobile-model-name">
-                            <span className="model-dot" style={{ background: MODEL_COLORS[m].dot }} />
+                            <ModelIcon model={m} />
                             {m}
                           </span>
-                          {pill(row.models[m].std.pneumothorax)}
+                          <div className="cond-boxes">
+                            {CONDS.map(c => (
+                              <span
+                                key={c}
+                                className={`cond-box cond-box-${row.models[m].std[c]}`}
+                                title={`${COND_SHORT[c]}: ${row.models[m].std[c]}`}
+                              />
+                            ))}
+                          </div>
                           <span className="total-chip-split">
                             <span style={{ color: scoreColor(stdTotal) }}>{stdTotal}</span>
                             <span className="total-chip-sep">/</span>
