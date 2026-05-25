@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import "./App.css";
 
-/* Tracks which tabs have been viewed in this session — animations only fire on
+/* Tracks which tabs have been viewed in this session - animations only fire on
    the FIRST visit per tab per page load. Refresh resets back to false. */
-const SEEN = { dashboard: false, graphs: false, stdCharts: false, cotCharts: false };
+const SEEN = { dashboard: false, graphs: false, stdCharts: false, cotCharts: false, ssMetrics: false };
 
 /* ─── Count-up hook ─── */
 function useCountUp(target, duration = 950, delay = 0, run = true) {
@@ -35,7 +35,7 @@ function AnimatedNum({ value, decimals = 2, duration = 950, delay = 0, run = tru
   return <>{v.toFixed(decimals)}</>;
 }
 
-/* ─── In-view hook — uses callback ref so effect re-runs when element attaches ─── */
+/* ─── In-view hook - uses callback ref so effect re-runs when element attaches ─── */
 function useInView(threshold = 0.12) {
   const [el, setEl] = useState(null);
   const ref = useCallback(node => setEl(node), []);
@@ -245,6 +245,127 @@ function condAcc(model, cond, prompt) {
   return (correct / MOCK_DATA.length) * 100;
 }
 
+function severityMAE(model, prompt) {
+  const total = MOCK_DATA.reduce((s, d) => s + Math.abs(d.models[model][prompt].severity - d.ground_truth.severity), 0);
+  return (total / MOCK_DATA.length).toFixed(2);
+}
+
+function accuracyBySeverity(model, prompt) {
+  const groups = {};
+  MOCK_DATA.forEach(d => {
+    const sev = d.ground_truth.severity;
+    if (!groups[sev]) groups[sev] = { total: 0, correct: 0 };
+    groups[sev].total++;
+    if (CONDS.every(c => d.models[model][prompt][c] === d.ground_truth[c])) groups[sev].correct++;
+  });
+  return groups;
+}
+
+function accuracyByCooccurrence(model, prompt) {
+  const groups = { 0: { total: 0, correct: 0 }, 1: { total: 0, correct: 0 }, 2: { total: 0, correct: 0 }, 3: { total: 0, correct: 0 } };
+  MOCK_DATA.forEach(d => {
+    const n = CONDS.filter(c => d.ground_truth[c] === "present").length;
+    groups[n].total++;
+    if (CONDS.every(c => d.models[model][prompt][c] === d.ground_truth[c])) groups[n].correct++;
+  });
+  return groups;
+}
+
+function interModelAgreement(modelA, modelB, prompt) {
+  let totalAgree = 0;
+  MOCK_DATA.forEach(d => {
+    const agree = CONDS.filter(c => d.models[modelA][prompt][c] === d.models[modelB][prompt][c]).length;
+    totalAgree += agree / CONDS.length;
+  });
+  return (totalAgree / MOCK_DATA.length * 100).toFixed(0);
+}
+
+function condStats(model, cond, prompt) {
+  let TP=0, FP=0, TN=0, FN=0;
+  MOCK_DATA.forEach(d => {
+    const p = d.models[model][prompt][cond], g = d.ground_truth[cond];
+    if (g==="present"&&p==="present") TP++;
+    else if (g==="absent"&&p==="present") FP++;
+    else if (g==="absent"&&p==="absent") TN++;
+    else FN++;
+  });
+  const sens = TP+FN>0 ? TP/(TP+FN) : 0;
+  const spec = TN+FP>0 ? TN/(TN+FP) : 0;
+  const ppv  = TP+FP>0 ? TP/(TP+FP) : null;
+  const npv  = TN+FN>0 ? TN/(TN+FN) : null;
+  const f1   = ppv!==null&&sens>0 ? 2*ppv*sens/(ppv+sens) : null;
+  return { TP, FP, TN, FN, sens, spec, ppv, npv, f1 };
+}
+
+function cohensKappa(model, prompt) {
+  let sum = 0;
+  CONDS.forEach(cond => {
+    const { TP, FP, TN, FN } = condStats(model, cond, prompt);
+    const n = MOCK_DATA.length;
+    const po = (TP+TN)/n;
+    const pe = ((TP+FN)/n)*((TP+FP)/n) + ((TN+FP)/n)*((TN+FN)/n);
+    sum += pe < 1 ? (po-pe)/(1-pe) : 1;
+  });
+  return (sum/CONDS.length).toFixed(2);
+}
+
+function classAccCI(model, prompt) {
+  const p = parseFloat(avgClass(model, prompt));
+  const n = MOCK_DATA.length;
+  const se = Math.sqrt(p*(1-p)/n);
+  return { low: Math.max(0, p-1.96*se), high: Math.min(1, p+1.96*se) };
+}
+
+function normalCDF(z) {
+  const a=[0.254829592,-0.284496736,1.421413741,-1.453152027,1.061405429], p=0.3275911;
+  const sign=z<0?-1:1, az=Math.abs(z);
+  const t=1/(1+p*az);
+  const y=1-(((((a[4]*t+a[3])*t+a[2])*t+a[1])*t+a[0])*t)*Math.exp(-az*az);
+  return 0.5*(1+sign*y);
+}
+
+function weightedKappaSeverity(model, prompt) {
+  const n=MOCK_DATA.length, k=5;
+  const cm=Array.from({length:k},()=>Array(k).fill(0));
+  MOCK_DATA.forEach(d=>{
+    cm[d.models[model][prompt].severity-1][d.ground_truth.severity-1]++;
+  });
+  const w=(i,j)=>1-Math.abs(i-j)/(k-1);
+  let po=0;
+  for(let i=0;i<k;i++) for(let j=0;j<k;j++) po+=w(i,j)*cm[i][j]/n;
+  const row=cm.map(r=>r.reduce((a,b)=>a+b,0));
+  const col=cm[0].map((_,j)=>cm.reduce((s,r)=>s+r[j],0));
+  let pe=0;
+  for(let i=0;i<k;i++) for(let j=0;j<k;j++) pe+=w(i,j)*(row[i]/n)*(col[j]/n);
+  return pe<1?((po-pe)/(1-pe)).toFixed(2):"1.00";
+}
+
+function pearsonSeverity(model, prompt) {
+  const preds=MOCK_DATA.map(d=>d.models[model][prompt].severity);
+  const gts=MOCK_DATA.map(d=>d.ground_truth.severity);
+  const n=preds.length;
+  const mp=preds.reduce((a,b)=>a+b,0)/n, mg=gts.reduce((a,b)=>a+b,0)/n;
+  const num=preds.reduce((s,p,i)=>s+(p-mp)*(gts[i]-mg),0);
+  const dp=Math.sqrt(preds.reduce((s,p)=>s+(p-mp)**2,0));
+  const dg=Math.sqrt(gts.reduce((s,g)=>s+(g-mg)**2,0));
+  return dp*dg>0?(num/(dp*dg)).toFixed(2):"-";
+}
+
+function mcnemarTest(modelA, modelB, prompt) {
+  let b=0, c=0;
+  MOCK_DATA.forEach(d=>{
+    const aOk=CONDS.every(cn=>d.models[modelA][prompt][cn]===d.ground_truth[cn]);
+    const bOk=CONDS.every(cn=>d.models[modelB][prompt][cn]===d.ground_truth[cn]);
+    if(aOk&&!bOk) b++; else if(!aOk&&bOk) c++;
+  });
+  const nn=b+c;
+  if(nn===0) return {chi2:"0.00",p:"1.000",sig:false,b,c};
+  const chi2=Math.max(0,(Math.abs(b-c)-1)**2/nn);
+  const rawP=2*(1-normalCDF(Math.sqrt(chi2)));
+  const p=rawP<0.001?"<0.001":rawP<0.01?"<0.01":rawP<0.05?"<0.05":rawP.toFixed(3);
+  return {chi2:chi2.toFixed(2),p,sig:rawP<0.05,b,c};
+}
+
 const ACCURACY = Object.fromEntries(MODELS.map(m => [m, {
   std: avgTotal(m, "std"),
   cot: avgTotal(m, "cot"),
@@ -341,7 +462,7 @@ function DetailContent({ row }) {
   return (
     <div className="detail-wrap">
           <div className="detail-header">
-            <span className="detail-id">{row.id} - detailed scoring รายละเอียด</span>
+            <span className="detail-id">{row.id} - detailed scoring</span>
             <div className="detail-tabs">
               {["breakdown", "calculation"].map(t => (
                 <button key={t} onClick={() => setDetailTab(t)}
@@ -363,15 +484,15 @@ function DetailContent({ row }) {
           {detailTab === "calculation" && (
             <div className="calc-wrap">
               <div className="calc-section">
-                <div className="calc-title">Classification score (per condition) ตารางคะแนน</div>
+                <div className="calc-title">Classification score (per condition)</div>
                 <div className="calc-table">
                   <div className="calc-row"><span className="calc-case">Prediction = Ground truth</span><span className="calc-val" style={{ color: "#6ee7b7" }}>1.0</span><span className="calc-note">exact match</span></div>
                   <div className="calc-row"><span className="calc-case">Prediction ≠ Ground truth</span><span className="calc-val" style={{ color: "#f87171" }}>0.0</span><span className="calc-note">wrong</span></div>
-                  <div className="calc-row"><span className="calc-case" style={{ fontStyle: "italic", color: "var(--ink-mute)" }}>ใช้ระบบ binary: ตอบถูก=1 ตอบผิด=0 ไม่มีคะแนนกลาง เพราะต้องการคำตอบตัดสินใจชัดเจนของ AI</span></div>
+                  <div className="calc-row"><span className="calc-case" style={{ fontStyle: "italic", color: "var(--ink-mute)" }}>Binary scoring: correct = 1, wrong = 0. No partial credit. the model must give a decisive answer.</span></div>
                 </div>
               </div>
               <div className="calc-section">
-                <div className="calc-title">Severity score (weighted) สูตรระดับความรุนแรง</div>
+                <div className="calc-title">Severity score (weighted)</div>
                 <div className="calc-formula">score = 1 - (|pred - gt| ÷ 4)</div>
                 <div className="calc-table">
                   {[0,1,2,3,4].map(diff => (
@@ -384,10 +505,10 @@ function DetailContent({ row }) {
                 </div>
               </div>
               <div className="calc-section">
-                <div className="calc-title">Total score สูตรคิดเลขผลลัพธ์สุทธิ</div>
+                <div className="calc-title">Total score</div>
                 <div className="calc-formula">total = (avg classification + severity) ÷ 2</div>
-                <div className="calc-note2">Range: 0.0 – 1.0 · Higher is better</div>
-                <div className="calc-note2">สูตร classification = (sum of classification scores) ÷ 3</div>
+                <div className="calc-note2">Range: 0.0-1.0 Higher is better</div>
+                <div className="calc-note2">classification = (sum of classification scores) ÷ 3</div>
               </div>
               <div className="calc-section">
                 <div className="calc-title">This image - scores per model (STD prompt)</div>
@@ -493,7 +614,7 @@ function ModelLineChart({ model, prompt }) {
         style={{ cursor: "crosshair" }}>
         {yTicks.map(t => (
           <g key={t}>
-            <line x1={ML} y1={py(t)} x2={ML + inW} y2={py(t)} stroke="rgba(255,255,255,0.06)" strokeWidth={1} />
+            <line x1={ML} y1={py(t)} x2={ML + inW} y2={py(t)} stroke="rgba(255, 255, 255, 0.06)" strokeWidth={1} />
             <text x={ML - 8} y={py(t) + 5} textAnchor="end" fontSize={13} fill="var(--ink-mute)">{t.toFixed(1)}</text>
           </g>
         ))}
@@ -517,10 +638,403 @@ function ModelLineChart({ model, prompt }) {
   );
 }
 
+/* ─── Per-condition metrics animated block ─── */
+function SSCondBlock({ cond, index }) {
+  const [ref, inView] = useInView(0.08);
+  const [visible, setVisible] = useState(SEEN.ssMetrics);
+  useEffect(() => {
+    if (inView && !visible) { SEEN.ssMetrics = true; setVisible(true); }
+  }, [inView]);
+  const sc2 = v => v!==null&&v>=0.7?"var(--ok)":v!==null&&v>=0.5?"var(--warn)":"var(--bad)";
+  const fmt = v => v!==null?`${(v*100).toFixed(0)}%`:"-";
+  const scLRp = v => v>=10?"var(--ok)":v>=5?"var(--warn)":"var(--bad)";
+  const scLRm = v => v<=0.1?"var(--ok)":v<=0.2?"var(--warn)":"var(--bad)";
+  const fmtLR = v => v===null?"-":v>99?"≥99":v.toFixed(2);
+  return (
+    <div
+      ref={ref}
+      className={`ss-cond-block2 reveal-section${visible ? " visible" : ""}`}
+      style={{ "--reveal-delay": `${index * 0.12}s` }}
+    >
+      <div className="ss-cond-title">{COND_LABELS[cond]}</div>
+      <div className="ss-metric-table-wrap">
+        <table className="ss-metric-table">
+          <thead>
+            <tr>
+              <th>Model</th><th>Prompt</th>
+              <th>Sens</th><th>Spec</th><th>PPV</th><th>NPV</th><th>F1</th>
+              <th>LR+<span className="th-sub">≥10 good</span></th>
+              <th>LR−<span className="th-sub">≤0.1 good</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {MODELS.flatMap(m => PROMPTS.map(p => {
+              const { sens, spec, ppv, npv, f1 } = condStats(m, cond, p);
+              const lrp = spec < 1 ? sens / (1 - spec) : null;
+              const lrm = spec > 0 ? (1 - sens) / spec : null;
+              return (
+                <tr key={`${m}-${p}`}>
+                  <td className="ss-model-cell"><ModelIcon model={m} size={11}/><span>{m}</span></td>
+                  <td><span className="prompt-chip">{PROMPT_SHORT[p]}</span></td>
+                  <td style={{color:sc2(sens)}}>{fmt(sens)}</td>
+                  <td style={{color:sc2(spec)}}>{fmt(spec)}</td>
+                  <td style={{color:sc2(ppv)}}>{fmt(ppv)}</td>
+                  <td style={{color:sc2(npv)}}>{fmt(npv)}</td>
+                  <td style={{color:sc2(f1)}}>{fmt(f1)}</td>
+                  <td style={{color:lrp!==null?scLRp(lrp):"var(--ink-mute)"}}>{fmtLR(lrp)}</td>
+                  <td style={{color:lrm!==null?scLRm(lrm):"var(--ink-mute)"}}>{fmtLR(lrm)}</td>
+                </tr>
+              );
+            }))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Subgroup: accuracy by ground truth severity ─── */
+function SeveritySubgroupSection() {
+  const [prompt, setPrompt] = useState("std");
+  const sevLevels = [1, 2, 3, 4, 5];
+  const sc = v => v >= 0.7 ? "var(--ok)" : v >= 0.5 ? "var(--warn)" : "var(--bad)";
+  return (
+    <div>
+      <div className="section-label">Accuracy by severity level</div>
+      <div className="sg-desc">Classification accuracy (all 3 conditions correct) grouped by ground truth severity score. Reveals whether models perform differently on mild vs. severe cases.</div>
+      <div className="cm-ctrl-group" style={{ marginBottom: "1rem" }}>
+        {PROMPTS.map(p => (
+          <button key={p} className={`cm-ctrl-btn${prompt===p?" active":""}`} onClick={() => setPrompt(p)}>
+            {PROMPT_LABELS[p]}
+          </button>
+        ))}
+      </div>
+      <div className="sg-table-scroll">
+        <table className="sg-table">
+          <thead>
+            <tr>
+              <th>Severity</th>
+              <th>n</th>
+              {MODELS.map(m => <th key={m}><ModelIcon model={m} size={11}/> {m}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {sevLevels.map(sev => {
+              const groupsPerModel = MODELS.map(m => accuracyBySeverity(m, prompt)[sev] || { total: 0, correct: 0 });
+              const n = groupsPerModel[0]?.total ?? 0;
+              return (
+                <tr key={sev}>
+                  <td><span className="sev-chip">{sev}/5</span></td>
+                  <td className="stat-n">{n}</td>
+                  {groupsPerModel.map((g, mi) => {
+                    const rate = g.total > 0 ? g.correct / g.total : null;
+                    return (
+                      <td key={mi} className="stat-n" style={{ color: rate !== null ? sc(rate) : "var(--ink-faint)" }}>
+                        {rate !== null ? `${(rate * 100).toFixed(0)}%` : "-"}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Subgroup: accuracy by condition co-occurrence ─── */
+function CooccurrenceSection() {
+  const [prompt, setPrompt] = useState("std");
+  const sc = v => v >= 0.7 ? "var(--ok)" : v >= 0.5 ? "var(--warn)" : "var(--bad)";
+  const labels = { 0: "No finding", 1: "1 condition", 2: "2 conditions", 3: "All 3" };
+  return (
+    <div>
+      <div className="section-label">Accuracy by condition co-occurrence</div>
+      <div className="sg-desc">Classification accuracy grouped by number of conditions present simultaneously. Models typically struggle more when multiple findings co-occur.</div>
+      <div className="cm-ctrl-group" style={{ marginBottom: "1rem" }}>
+        {PROMPTS.map(p => (
+          <button key={p} className={`cm-ctrl-btn${prompt===p?" active":""}`} onClick={() => setPrompt(p)}>
+            {PROMPT_LABELS[p]}
+          </button>
+        ))}
+      </div>
+      <div className="sg-table-scroll">
+        <table className="sg-table">
+          <thead>
+            <tr>
+              <th>Conditions</th>
+              <th>n</th>
+              {MODELS.map(m => <th key={m}><ModelIcon model={m} size={11}/> {m}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {[0, 1, 2, 3].map(k => {
+              const groupsPerModel = MODELS.map(m => accuracyByCooccurrence(m, prompt)[k] || { total: 0, correct: 0 });
+              const n = groupsPerModel[0]?.total ?? 0;
+              return (
+                <tr key={k}>
+                  <td>{labels[k]}</td>
+                  <td className="stat-n">{n}</td>
+                  {groupsPerModel.map((g, mi) => {
+                    const rate = g.total > 0 ? g.correct / g.total : null;
+                    return (
+                      <td key={mi} className="stat-n" style={{ color: rate !== null ? sc(rate) : "var(--ink-faint)" }}>
+                        {rate !== null ? `${(rate * 100).toFixed(0)}%` : "-"}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Inter-model agreement matrix ─── */
+function InterModelAgreementSection() {
+  const [prompt, setPrompt] = useState("std");
+  const agreeColor = v => {
+    const n = parseInt(v);
+    if (n >= 80) return "var(--ok)";
+    if (n >= 65) return "var(--warn)";
+    return "var(--bad)";
+  };
+  return (
+    <div>
+      <div className="section-label">Inter-model agreement</div>
+      <div className="sg-desc">Percentage of images where both models gave the same answer (regardless of ground truth). High agreement with low accuracy indicates consistent shared errors.</div>
+      <div className="cm-ctrl-group" style={{ marginBottom: "1rem" }}>
+        {PROMPTS.map(p => (
+          <button key={p} className={`cm-ctrl-btn${prompt===p?" active":""}`} onClick={() => setPrompt(p)}>
+            {PROMPT_LABELS[p]}
+          </button>
+        ))}
+      </div>
+      <div className="sg-table-scroll">
+        <table className="sg-table agree-matrix">
+          <thead>
+            <tr>
+              <th></th>
+              {MODELS.map(m => <th key={m}>{m}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {MODELS.map((rowModel, ri) => (
+              <tr key={rowModel}>
+                <td className="agree-row-label"><ModelIcon model={rowModel} size={11}/> {rowModel}</td>
+                {MODELS.map((colModel, ci) => {
+                  if (ri === ci) return <td key={colModel} className="agree-diag">-</td>;
+                  const pct = interModelAgreement(rowModel, colModel, prompt);
+                  return (
+                    <td key={colModel} className="stat-n" style={{ color: agreeColor(pct) }}>
+                      {pct}%
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="stat-footnote">Agreement = % images where both models predicted the same answer per condition, averaged across PTX · EFF · EDEMA</div>
+    </div>
+  );
+}
+
+/* ─── Statistical comparison (McNemar's test) ─── */
+function StatComparisonSection() {
+  const [prompt, setPrompt] = useState("std");
+  const [infoOpen, setInfoOpen] = useState(false);
+  const pairs = [];
+  for (let i=0;i<MODELS.length;i++)
+    for (let j=i+1;j<MODELS.length;j++)
+      pairs.push([MODELS[i], MODELS[j]]);
+
+  return (
+    <div>
+      <div className="section-label">
+        Statistical comparison - McNemar's test
+        <button className="info-btn" onClick={() => setInfoOpen(true)} title="About McNemar's test">i</button>
+      </div>
+
+      {infoOpen && (
+        <div className="info-overlay" onClick={() => setInfoOpen(false)}>
+          <div className="info-modal" onClick={e => e.stopPropagation()}>
+            <button className="info-modal-close" onClick={() => setInfoOpen(false)}>✕</button>
+            <div className="info-modal-title">McNemar's Test</div>
+
+            <div className="info-block">
+              <div className="info-block-label">What it measures</div>
+              <div className="info-block-body">Compares model A vs B by looking only at cases where<strong style={{color:"var(--ink)"}}> they disagree</strong>. Cases where both are correct or both are wrong add no information.</div>
+            </div>
+
+            <div className="info-block">
+              <div className="info-block-label">Definition of correct</div>
+              <div className="info-block-body">An image is counted correct only if the model predicts <strong style={{color:"var(--ink)"}}>all three conditions (PTX + EFF + EDEMA) correctly</strong>. Missing even one counts as wrong.</div>
+            </div>
+
+            <div className="info-block">
+              <div className="info-block-label">Variables b and c</div>
+              <div className="info-def-row"><span className="info-def-key">b</span><span className="info-def-val">= images where A is correct but B is wrong</span></div>
+              <div className="info-def-row"><span className="info-def-key">c</span><span className="info-def-val">= images where A is wrong but B is correct</span></div>
+              <div className="info-block-body" style={{marginTop:"0.35rem"}}>a and d are excluded. both models agree on those cases</div>
+            </div>
+
+            <div className="info-block">
+              <div className="info-block-label">Formula χ² (with continuity correction)</div>
+              <div className="info-formula">χ² = (|b - c| - 1)² / (b + c)</div>
+              <div className="info-block-body">The continuity correction (-1) reduces type I error when n is small; without it, differences would be overestimated.</div>
+            </div>
+
+            <div className="info-block">
+              <div className="info-block-label">Interpretation</div>
+              <div className="info-def-row"><span className="info-def-key" style={{color:"var(--ok)"}}>sig.</span><span className="info-def-val">p &lt; 0.05 = the pair differs significantly in accuracy</span></div>
+              <div className="info-def-row"><span className="info-def-key">n.s.</span><span className="info-def-val">p ≥ 0.05 = insufficient evidence of a difference</span></div>
+            </div>
+
+            <div className="info-warn">
+              Works best when b + c ≥ 10. If b + c is very small, results may be unreliable.
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="stat-desc">
+        H₀: the pair has equal error rates · correct = all three conditions predicted correctly · continuity correction applied
+      </div>
+      <div className="cm-ctrl-group" style={{ marginBottom: "1rem" }}>
+        {PROMPTS.map(p => (
+          <button key={p} className={`cm-ctrl-btn${prompt===p?" active":""}`} onClick={()=>setPrompt(p)}>
+            {PROMPT_LABELS[p]}
+          </button>
+        ))}
+      </div>
+      <div className="stat-table-scroll">
+        <table className="stat-table">
+          <colgroup>
+            <col style={{width:"25%"}}/>
+            <col style={{width:"15%"}}/>
+            <col style={{width:"15%"}}/>
+            <col style={{width:"15%"}}/>
+            <col style={{width:"15%"}}/>
+            <col style={{width:"15%"}}/>
+          </colgroup>
+          <thead>
+            <tr>
+              <th>Comparison</th>
+              <th>b<span className="th-sub">A correct, B wrong</span></th>
+              <th>c<span className="th-sub">A wrong, B correct</span></th>
+              <th>χ²</th>
+              <th>p-value</th>
+              <th>Sig.</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pairs.map(([a, b]) => {
+              const r = mcnemarTest(a, b, prompt);
+              return (
+                <tr key={`${a}-${b}`}>
+                  <td className="stat-pair-cell">
+                    <div className="stat-model-row"><ModelIcon model={a} size={11}/><span>{a}</span></div>
+                    <div className="stat-vs">vs</div>
+                    <div className="stat-model-row"><ModelIcon model={b} size={11}/><span>{b}</span></div>
+                  </td>
+                  <td className="stat-n">{r.b}</td>
+                  <td className="stat-n">{r.c}</td>
+                  <td className="stat-n">{r.chi2}</td>
+                  <td className="stat-n" style={{color:r.sig?"var(--ok)":"var(--ink-mute)"}}>{r.p}</td>
+                  <td><span className={`stat-badge ${r.sig?"stat-sig":"stat-ns"}`}>{r.sig?"sig.":"n.s."}</span></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="stat-footnote">McNemar's test with continuity correction · n = {MOCK_DATA.length} images · α = 0.05</div>
+    </div>
+  );
+}
+
+/* ─── Confusion matrix ─── */
+function ConfusionMatrixSection({ columns = 2 }) {
+  const [prompt, setPrompt] = useState("std");
+  const [cond, setCond] = useState("pneumothorax");
+  const sc = v => v >= 0.7 ? "var(--ok)" : v >= 0.5 ? "var(--warn)" : "var(--bad)";
+
+  return (
+    <div>
+      <div className="section-label">Confusion matrix</div>
+      <div className="cm-controls">
+        <div className="cm-ctrl-group">
+          {CONDS.map(c => (
+            <button key={c} className={`cm-ctrl-btn${cond === c ? " active" : ""}`} onClick={() => setCond(c)}>
+              {COND_LABELS[c]}
+            </button>
+          ))}
+        </div>
+        <div className="cm-ctrl-group">
+          {PROMPTS.map(p => (
+            <button key={p} className={`cm-ctrl-btn${prompt === p ? " active" : ""}`} onClick={() => setPrompt(p)}>
+              {PROMPT_LABELS[p]}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className={`cm-model-grid${columns === 4 ? " cm-model-grid-4" : ""}`}>
+        {MODELS.map(m => {
+          const { TP, FP, TN, FN, sens, spec, ppv, npv, f1 } = condStats(m, cond, prompt);
+          const maxV = Math.max(TP, FP, TN, FN, 1);
+          const acc = ((TP+TN)/MOCK_DATA.length*100).toFixed(0);
+          return (
+            <div key={m} className="cm-card">
+              <div className="cm-card-title">
+                <ModelIcon model={m} size={12} />
+                <span>{m}</span>
+                <span className="cm-prompt-badge">{PROMPT_SHORT[prompt]}</span>
+              </div>
+              <div className="cm-matrix">
+                <div className="cm-corner" />
+                <div className="cm-col-head">Actual +</div>
+                <div className="cm-col-head">Actual −</div>
+                <div className="cm-row-head">Pred +</div>
+                <div className="cm-cell cm-tp" style={{ "--i": TP/maxV }}><span className="cm-n">{TP}</span><span className="cm-tag2">TP</span></div>
+                <div className="cm-cell cm-fp" style={{ "--i": FP/maxV }}><span className="cm-n">{FP}</span><span className="cm-tag2">FP</span></div>
+                <div className="cm-row-head">Pred −</div>
+                <div className="cm-cell cm-fn" style={{ "--i": FN/maxV }}><span className="cm-n">{FN}</span><span className="cm-tag2">FN</span></div>
+                <div className="cm-cell cm-tn" style={{ "--i": TN/maxV }}><span className="cm-n">{TN}</span><span className="cm-tag2">TN</span></div>
+              </div>
+              <div className="cm-stats-row">
+                <div className="cm-stat"><span className="cm-stat-l">Sens</span><span className="cm-stat-v" style={{color:sc(sens)}}>{(sens*100).toFixed(0)}%</span></div>
+                <div className="cm-stat"><span className="cm-stat-l">Spec</span><span className="cm-stat-v" style={{color:sc(spec)}}>{(spec*100).toFixed(0)}%</span></div>
+                <div className="cm-stat"><span className="cm-stat-l">PPV</span><span className="cm-stat-v" style={{color:ppv!==null?sc(ppv):"var(--ink-mute)"}}>{ppv!==null?`${(ppv*100).toFixed(0)}%`:"-"}</span></div>
+                <div className="cm-stat"><span className="cm-stat-l">NPV</span><span className="cm-stat-v" style={{color:npv!==null?sc(npv):"var(--ink-mute)"}}>{npv!==null?`${(npv*100).toFixed(0)}%`:"-"}</span></div>
+                <div className="cm-stat"><span className="cm-stat-l">F1</span><span className="cm-stat-v" style={{color:f1!==null?sc(f1):"var(--ink-mute)"}}>{f1!==null?`${(f1*100).toFixed(0)}%`:"-"}</span></div>
+                <div className="cm-stat"><span className="cm-stat-l">FNR</span><span className="cm-stat-v" style={{color:(1-sens)<=0.15?"var(--ok)":(1-sens)<=0.3?"var(--warn)":"var(--bad)"}}>{((1-sens)*100).toFixed(0)}%</span></div>
+                <div className="cm-stat"><span className="cm-stat-l">Acc</span><span className="cm-stat-v">{acc}%</span></div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /* ─── App ─── */
 function GraphsPage() {
   const [stdOpen, setStdOpen] = useState(false);
   const [cotOpen, setCotOpen] = useState(false);
+  const [stdEverOpened, setStdEverOpened] = useState(false);
+  const [cotEverOpened, setCotEverOpened] = useState(false);
+  const [statEverInCol, setStatEverInCol] = useState(false);
+  const [confEverInCol, setConfEverInCol] = useState(false);
+  const [confEverFull, setConfEverFull] = useState(false);
+  const nOpen = (stdOpen ? 1 : 0) + (cotOpen ? 1 : 0);
   const doAnimate = useRef(!SEEN.graphs);
   const [barsVisible, setBarsVisible] = useState(SEEN.graphs);
   useEffect(() => {
@@ -530,9 +1044,18 @@ function GraphsPage() {
     return () => cancelAnimationFrame(raf);
   }, []);
 
+  useEffect(() => {
+    if (nOpen >= 1) setStatEverInCol(true);
+    if (nOpen === 1) setConfEverFull(true);
+    if (nOpen >= 2) setConfEverInCol(true);
+  }, [nOpen]);
+
+  const toggleStd = () => setStdOpen(v => { if (!v) setStdEverOpened(true); return !v; });
+  const toggleCot = () => setCotOpen(v => { if (!v) setCotEverOpened(true); return !v; });
+
   /* bar chart constants */
-  const BW = 640, BH = 260;
-  const BML = 56, BMR = 20, BMT = 20, BMB = 58;
+  const BW = 640, BH = 200;
+  const BML = 56, BMR = 20, BMT = 16, BMB = 46;
   const bInW = BW - BML - BMR;
   const bInH = BH - BMT - BMB;
   const groupW = bInW / MODELS.length;
@@ -555,123 +1078,182 @@ function GraphsPage() {
 
   const yTicks = [0, 0.25, 0.5, 0.75, 1.0];
 
+  const barChartSvg = (
+    <svg viewBox={`0 0 ${BW} ${BH}`} width="100%" className="chart-svg">
+      {yTicks.map(t => (
+        <g key={t}>
+          <line x1={BML} y1={bY(t)} x2={BML + bInW} y2={bY(t)} stroke="rgba(255,255,255,0.06)" strokeWidth={1} />
+          <text x={BML - 8} y={bY(t) + 5} textAnchor="end" fontSize={13} fill="var(--ink-mute)">{t.toFixed(2)}</text>
+        </g>
+      ))}
+      <line x1={BML} y1={BMT + bInH} x2={BML + bInW} y2={BMT + bInH} stroke="rgba(255,255,255,0.15)" strokeWidth={1} />
+      {MODELS.map((m, mi) => {
+        const cx = BML + groupW * (mi + 0.5);
+        const stdV = parseFloat(ACCURACY[m].std);
+        const cotV = parseFloat(ACCURACY[m].cot);
+        const stdX = cx - bw - bgap / 2;
+        const cotX = cx + bgap / 2;
+        const ciS = classAccCI(m, "std");
+        const ciC = classAccCI(m, "cot");
+        return (
+          <g key={m}>
+            <rect className={`bar-svg-anim${barsVisible ? " bar-visible" : ""}`} style={{ "--bar-delay": `${mi * 0.12}s` }} x={stdX} y={bY(stdV)} width={bw} height={stdV * bInH} fill={MODEL_COLORS[m].dot} opacity={0.85} rx={2} />
+            <rect className={`bar-svg-anim${barsVisible ? " bar-visible" : ""}`} style={{ "--bar-delay": `${mi * 0.12 + 0.06}s` }} x={cotX} y={bY(cotV)} width={bw} height={cotV * bInH} fill={MODEL_COLORS[m].dot} opacity={0.35} rx={2} />
+            <g className={`bar-label-svg-anim${barsVisible ? " bar-visible" : ""}`} style={{ "--bl-delay": `${mi * 0.12 + 0.82}s` }}>
+              {(() => {
+                const wx = 3, col = MODEL_COLORS[m].dot;
+                const cx1 = stdX+bw/2, cx2 = cotX+bw/2;
+                return (
+                  <>
+                    <line x1={cx1} y1={bY(ciS.high)} x2={cx1} y2={bY(ciS.low)} stroke={col} strokeWidth={1.2} opacity={0.8} />
+                    <line x1={cx1-wx} y1={bY(ciS.high)} x2={cx1+wx} y2={bY(ciS.high)} stroke={col} strokeWidth={1.2} opacity={0.8} />
+                    <line x1={cx1-wx} y1={bY(ciS.low)} x2={cx1+wx} y2={bY(ciS.low)} stroke={col} strokeWidth={1.2} opacity={0.8} />
+                    <line x1={cx2} y1={bY(ciC.high)} x2={cx2} y2={bY(ciC.low)} stroke={col} strokeWidth={1.2} opacity={0.4} />
+                    <line x1={cx2-wx} y1={bY(ciC.high)} x2={cx2+wx} y2={bY(ciC.high)} stroke={col} strokeWidth={1.2} opacity={0.4} />
+                    <line x1={cx2-wx} y1={bY(ciC.low)} x2={cx2+wx} y2={bY(ciC.low)} stroke={col} strokeWidth={1.2} opacity={0.4} />
+                  </>
+                );
+              })()}
+            </g>
+            <g className={`bar-label-svg-anim${barsVisible ? " bar-visible" : ""}`} style={{ "--bl-delay": `${mi * 0.12 + 0.45}s` }}>
+              <text x={stdX + bw / 2} y={bY(ciS.high) - 7} textAnchor="middle" fontSize={12} fill={MODEL_COLORS[m].dot}><AnimatedNum value={stdV} duration={700} delay={mi * 0.12} run={doAnimate.current} /></text>
+              <text x={cotX + bw / 2} y={bY(ciC.high) - 7} textAnchor="middle" fontSize={12} fill={MODEL_COLORS[m].dot} opacity={0.7}><AnimatedNum value={cotV} duration={700} delay={mi * 0.12 + 0.06} run={doAnimate.current} /></text>
+            </g>
+            <text x={cx} y={BH - BMB + 20} textAnchor="middle" fontSize={13} fill="var(--ink-soft)">{m}</text>
+          </g>
+        );
+      })}
+      <rect x={BML} y={BH - 18} width={14} height={9} fill="white" opacity={0.7} rx={1} />
+      <text x={BML + 18} y={BH - 9} fontSize={12} fill="var(--ink-mute)">STD</text>
+      <rect x={BML + 54} y={BH - 18} width={14} height={9} fill="white" opacity={0.3} rx={1} />
+      <text x={BML + 72} y={BH - 9} fontSize={12} fill="var(--ink-mute)">CoT</text>
+      <text x={BML + 120} y={BH - 9} fontSize={11} fill="var(--ink-faint)">whiskers = 95% CI</text>
+    </svg>
+  );
+
+  const lineChartSvg = (prompt) => (
+    <svg viewBox={`0 0 ${LW} ${LH}`} width="100%" className="chart-svg">
+      {yTicks.map(t => (
+        <g key={t}>
+          <line x1={LML} y1={lY(t)} x2={LML + lInW} y2={lY(t)} stroke="rgba(255,255,255,0.06)" strokeWidth={1} />
+          <text x={LML - 8} y={lY(t) + 5} textAnchor="end" fontSize={13} fill="var(--ink-mute)">{t.toFixed(1)}</text>
+        </g>
+      ))}
+      <line x1={LML} y1={LMT + lInH} x2={LML + lInW} y2={LMT + lInH} stroke="rgba(255,255,255,0.15)" strokeWidth={1} />
+      {MODELS.map((m, mi) => (
+        <AnimatedPath key={m} d={makePath(m, prompt)} stroke={MODEL_COLORS[m].dot} strokeWidth={1.8} opacity={0.85} delay={mi * 0.15} animate={doAnimate.current} />
+      ))}
+      {MOCK_DATA.map((_, i) => {
+        if (i % 4 !== 0 && i !== MOCK_DATA.length - 1) return null;
+        return <text key={i} x={lX(i)} y={LH - LMB + 18} textAnchor="middle" fontSize={12} fill="var(--ink-mute)">{i + 1}</text>;
+      })}
+      <text x={LML + lInW / 2} y={LH - LMB + 34} textAnchor="middle" fontSize={12} fill="var(--ink-mute)">image #</text>
+      {MODELS.map((m, mi) => (
+        <g key={m}>
+          <line x1={LML + mi * 110} y1={LH - 13} x2={LML + mi * 110 + 20} y2={LH - 13} stroke={MODEL_COLORS[m].dot} strokeWidth={2} />
+          <text x={LML + mi * 110 + 24} y={LH - 8} fontSize={12} fill="var(--ink-mute)">{m}</text>
+        </g>
+      ))}
+    </svg>
+  );
+
   return (
-    <div className="page-wrap graphs-wrap">
-      <div className="graphs-inner">
-      {/* ── Bar chart ── */}
-      <div className="section-label">Average total score by model</div>
-      <div className="graph-card">
-        <svg viewBox={`0 0 ${BW} ${BH}`} width="100%" className="chart-svg">
-          {yTicks.map(t => (
-            <g key={t}>
-              <line x1={BML} y1={bY(t)} x2={BML + bInW} y2={bY(t)} stroke="rgba(255,255,255,0.06)" strokeWidth={1} />
-              <text x={BML - 8} y={bY(t) + 5} textAnchor="end" fontSize={13} fill="var(--ink-mute)">{t.toFixed(2)}</text>
-            </g>
-          ))}
-          <line x1={BML} y1={BMT + bInH} x2={BML + bInW} y2={BMT + bInH} stroke="rgba(255,255,255,0.15)" strokeWidth={1} />
-          {MODELS.map((m, mi) => {
-            const cx = BML + groupW * (mi + 0.5);
-            const stdV = parseFloat(ACCURACY[m].std);
-            const cotV = parseFloat(ACCURACY[m].cot);
-            const stdX = cx - bw - bgap / 2;
-            const cotX = cx + bgap / 2;
-            return (
-              <g key={m}>
-                <rect className={`bar-svg-anim${barsVisible ? " bar-visible" : ""}`} style={{ "--bar-delay": `${mi * 0.12}s` }} x={stdX} y={bY(stdV)} width={bw} height={stdV * bInH} fill={MODEL_COLORS[m].dot} opacity={0.85} rx={2} />
-                <rect className={`bar-svg-anim${barsVisible ? " bar-visible" : ""}`} style={{ "--bar-delay": `${mi * 0.12 + 0.06}s` }} x={cotX} y={bY(cotV)} width={bw} height={cotV * bInH} fill={MODEL_COLORS[m].dot} opacity={0.35} rx={2} />
-                <g className={`bar-label-svg-anim${barsVisible ? " bar-visible" : ""}`} style={{ "--bl-delay": `${mi * 0.12 + 0.45}s` }}>
-                  <text x={stdX + bw / 2} y={bY(stdV) - 6} textAnchor="middle" fontSize={12} fill={MODEL_COLORS[m].dot}><AnimatedNum value={stdV} duration={700} delay={mi * 0.12} run={doAnimate.current} /></text>
-                  <text x={cotX + bw / 2} y={bY(cotV) - 6} textAnchor="middle" fontSize={12} fill={MODEL_COLORS[m].dot} opacity={0.7}><AnimatedNum value={cotV} duration={700} delay={mi * 0.12 + 0.06} run={doAnimate.current} /></text>
-                </g>
-                <text x={cx} y={BH - BMB + 20} textAnchor="middle" fontSize={13} fill="var(--ink-soft)">{m}</text>
-              </g>
-            );
-          })}
-          <rect x={BML} y={BH - 18} width={14} height={9} fill="white" opacity={0.7} rx={1} />
-          <text x={BML + 18} y={BH - 9} fontSize={12} fill="var(--ink-mute)">STD</text>
-          <rect x={BML + 54} y={BH - 18} width={14} height={9} fill="white" opacity={0.3} rx={1} />
-          <text x={BML + 72} y={BH - 9} fontSize={12} fill="var(--ink-mute)">CoT</text>
-        </svg>
+    <div className="graphs-page">
+
+      {/* ── Top: 2 columns ── */}
+      <div className="graphs-two-col">
+
+        {/* Left: score per image charts */}
+        <div className="graphs-col">
+          <div className="gg-cell">
+            <div className="section-label">Average total score by model</div>
+            <div className="graph-card">{barChartSvg}</div>
+          </div>
+
+          <div className="gg-cell">
+            <div className="section-label">Score per image - Standard</div>
+            <div className="graph-card">{lineChartSvg("std")}</div>
+            <button className="expand-detail-btn" onClick={toggleStd}>
+              <span className="expand-icon" style={{ transform: stdOpen ? "rotate(90deg)" : "rotate(0deg)" }}>›</span>
+              {stdOpen ? "Hide per-model charts" : "Show per-model charts"}
+            </button>
+            <div className={`model-charts-collapse${stdOpen ? " open" : ""}`}>
+              <div className="model-charts-inner">
+                {stdEverOpened && (
+                  <div className="model-charts-grid" style={{ marginTop: 8 }}>
+                    {MODELS.map(m => <ModelLineChart key={m} model={m} prompt="std" />)}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="gg-cell">
+            <div className="section-label">Score per image - Chain of Thought</div>
+            <div className="graph-card">{lineChartSvg("cot")}</div>
+            <button className="expand-detail-btn" onClick={toggleCot}>
+              <span className="expand-icon" style={{ transform: cotOpen ? "rotate(90deg)" : "rotate(0deg)" }}>›</span>
+              {cotOpen ? "Hide per-model charts" : "Show per-model charts"}
+            </button>
+            <div className={`model-charts-collapse${cotOpen ? " open" : ""}`}>
+              <div className="model-charts-inner">
+                {cotEverOpened && (
+                  <div className="model-charts-grid" style={{ marginTop: 8 }}>
+                    {MODELS.map(m => <ModelLineChart key={m} model={m} prompt="cot" />)}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right: analysis sections + adaptive heavy sections */}
+        <div className="graphs-col">
+          <div className="gg-cell"><InterModelAgreementSection /></div>
+          <div className="gg-cell"><SeveritySubgroupSection /></div>
+          <div className="gg-cell"><CooccurrenceSection /></div>
+
+          {/* Stat slides in when nOpen >= 1 */}
+          <div className={`gg-col-collapse${nOpen >= 1 ? " open" : ""}`}>
+            <div className="gg-col-inner">
+              {statEverInCol && <div className="gg-cell"><StatComparisonSection /></div>}
+            </div>
+          </div>
+
+          {/* Confusion slides in when nOpen >= 2 */}
+          <div className={`gg-col-collapse${nOpen >= 2 ? " open" : ""}`}>
+            <div className="gg-col-inner">
+              {confEverInCol && <div className="gg-cell"><ConfusionMatrixSection /></div>}
+            </div>
+          </div>
+        </div>
+
       </div>
 
-      {/* ── Line chart STD ── */}
-      <div className="section-label" style={{ marginTop: "1.5rem" }}>Score per image - Standard prompt</div>
-      <div className="graph-card">
-        <svg viewBox={`0 0 ${LW} ${LH}`} width="100%" className="chart-svg">
-          {yTicks.map(t => (
-            <g key={t}>
-              <line x1={LML} y1={lY(t)} x2={LML + lInW} y2={lY(t)} stroke="rgba(255,255,255,0.06)" strokeWidth={1} />
-              <text x={LML - 8} y={lY(t) + 5} textAnchor="end" fontSize={13} fill="var(--ink-mute)">{t.toFixed(1)}</text>
-            </g>
-          ))}
-          <line x1={LML} y1={LMT + lInH} x2={LML + lInW} y2={LMT + lInH} stroke="rgba(255,255,255,0.15)" strokeWidth={1} />
-          {MODELS.map((m, mi) => (
-            <AnimatedPath key={m} d={makePath(m, "std")} stroke={MODEL_COLORS[m].dot} strokeWidth={1.8} opacity={0.85} delay={mi * 0.15} animate={doAnimate.current} />
-          ))}
-          {MOCK_DATA.map((row, i) => {
-            if (i % 4 !== 0 && i !== MOCK_DATA.length - 1) return null;
-            return (
-              <text key={i} x={lX(i)} y={LH - LMB + 18} textAnchor="middle" fontSize={12} fill="var(--ink-mute)">{i + 1}</text>
-            );
-          })}
-          <text x={LML + lInW / 2} y={LH - LMB + 34} textAnchor="middle" fontSize={12} fill="var(--ink-mute)">image #</text>
-          {MODELS.map((m, mi) => (
-            <g key={m}>
-              <line x1={LML + mi * 110} y1={LH - 13} x2={LML + mi * 110 + 20} y2={LH - 13} stroke={MODEL_COLORS[m].dot} strokeWidth={2} />
-              <text x={LML + mi * 110 + 24} y={LH - 8} fontSize={12} fill="var(--ink-mute)">{m}</text>
-            </g>
-          ))}
-        </svg>
-      </div>
-      <button className="expand-detail-btn" onClick={() => setStdOpen(v => !v)}>
-        <span className="expand-icon" style={{ transform: stdOpen ? "rotate(90deg)" : "rotate(0deg)" }}>›</span>
-        {stdOpen ? "ซ่อนรายละเอียด" : "ดูรายละเอียดแต่ละ model"}
-      </button>
-      {stdOpen && (
-        <div className="model-charts-grid">
-          {MODELS.map(m => <ModelLineChart key={m} model={m} prompt="std" />)}
-        </div>
-      )}
+      {/* ── Bottom: adaptive heavy section (hidden when nOpen >= 2) ── */}
+      <div className={`graphs-bottom-area${nOpen < 2 ? " open" : ""}`}>
+        <div className="graphs-bottom-area-inner">
 
-      {/* ── Line chart CoT ── */}
-      <div className="section-label" style={{ marginTop: "1.5rem" }}>Score per image - Chain of Thought prompt</div>
-      <div className="graph-card">
-        <svg viewBox={`0 0 ${LW} ${LH}`} width="100%" className="chart-svg">
-          {yTicks.map(t => (
-            <g key={t}>
-              <line x1={LML} y1={lY(t)} x2={LML + lInW} y2={lY(t)} stroke="rgba(255,255,255,0.06)" strokeWidth={1} />
-              <text x={LML - 8} y={lY(t) + 5} textAnchor="end" fontSize={13} fill="var(--ink-mute)">{t.toFixed(1)}</text>
-            </g>
-          ))}
-          <line x1={LML} y1={LMT + lInH} x2={LML + lInW} y2={LMT + lInH} stroke="rgba(255,255,255,0.15)" strokeWidth={1} />
-          {MODELS.map((m, mi) => (
-            <AnimatedPath key={m} d={makePath(m, "cot")} stroke={MODEL_COLORS[m].dot} strokeWidth={1.8} opacity={0.85} delay={mi * 0.15} animate={doAnimate.current} />
-          ))}
-          {MOCK_DATA.map((row, i) => {
-            if (i % 4 !== 0 && i !== MOCK_DATA.length - 1) return null;
-            return (
-              <text key={i} x={lX(i)} y={LH - LMB + 18} textAnchor="middle" fontSize={12} fill="var(--ink-mute)">{i + 1}</text>
-            );
-          })}
-          <text x={LML + lInW / 2} y={LH - LMB + 34} textAnchor="middle" fontSize={12} fill="var(--ink-mute)">image #</text>
-          {MODELS.map((m, mi) => (
-            <g key={m}>
-              <line x1={LML + mi * 110} y1={LH - 13} x2={LML + mi * 110 + 20} y2={LH - 13} stroke={MODEL_COLORS[m].dot} strokeWidth={2} />
-              <text x={LML + mi * 110 + 24} y={LH - 8} fontSize={12} fill="var(--ink-mute)">{m}</text>
-            </g>
-          ))}
-        </svg>
-      </div>
-      <button className="expand-detail-btn" onClick={() => setCotOpen(v => !v)}>
-        <span className="expand-icon" style={{ transform: cotOpen ? "rotate(90deg)" : "rotate(0deg)" }}>›</span>
-        {cotOpen ? "ซ่อนรายละเอียด" : "ดูรายละเอียดแต่ละ model"}
-      </button>
-      {cotOpen && (
-        <div className="model-charts-grid">
-          {MODELS.map(m => <ModelLineChart key={m} model={m} prompt="cot" />)}
+          {/* State 0: confusion 2×2 + stat side by side */}
+          <div className={`graphs-bottom-state${nOpen === 0 ? " open" : ""}`}>
+            <div className="graphs-bottom-state-inner">
+              <div className="graphs-bottom">
+                <div className="gg-cell"><ConfusionMatrixSection /></div>
+                <div className="gg-cell"><StatComparisonSection /></div>
+              </div>
+            </div>
+          </div>
+
+          {/* State 1: confusion 1×4 full width */}
+          <div className={`graphs-bottom-state${nOpen === 1 ? " open" : ""}`}>
+            <div className="graphs-bottom-state-inner">
+              {confEverFull && <div className="gg-cell"><ConfusionMatrixSection columns={4} /></div>}
+            </div>
+          </div>
+
         </div>
-      )}
       </div>
+
     </div>
   );
 }
@@ -858,7 +1440,7 @@ function GroundTruthPage() {
   return (
     <div className="page-wrap ground-wrap">
       <div className="gw-container">
-        <div className="section-label">Ground truth - ข้อมูลมาตรฐานสำหรับวัดผล</div>
+        <div className="section-label">Ground truth - reference standard</div>
         <div className="gt-list">
           {MOCK_DATA.map(row => (
             <div key={`gt-${row.id}`} className="gt-list-card">
@@ -877,21 +1459,104 @@ function GroundTruthPage() {
         </div>
 
         <div className="data-section">
-          <div className="section-label">Standard prompt answers - คำตอบจาก Prompt แบบปกติ</div>
+          <div className="section-label">Standard prompt answers</div>
           <div className="data-table-grid">
             {MODELS.map(model => <ModelAnswerTable key={`std-${model}`} model={model} prompt="std" />)}
           </div>
         </div>
 
         <div className="data-section">
-          <div className="section-label">Chain-of-thought prompt answers - คำตอบจาก Prompt แบบ CoT</div>
+          <div className="section-label">Chain-of-thought prompt answers</div>
           <div className="data-table-grid">
             {MODELS.map(model => <ModelAnswerTable key={`cot-${model}`} model={model} prompt="cot" />)}
           </div>
         </div>
 
+        {/* Dataset overview */}
+        <div className="data-section">
+          <div className="section-label">Dataset overview</div>
+          <div className="dataset-grid">
+            {[
+              { label: "Source",       val: "NIH ChestX-ray14",  note: "Wang et al., 2017" },
+              { label: "Total images", val: "1,000",              note: "random sample from 112,120" },
+              { label: "Sex",          val: "55% M · 45% F",     note: "Male / Female" },
+              { label: "Age range",    val: "18-90 yrs",       note: "median 51.4 years" },
+            ].map(({ label, val, note }) => (
+              <div key={label} className="ds-card">
+                <span className="ds-card-label">{label}</span>
+                <span className="ds-card-val">{val}</span>
+                <span className="ds-card-note">{note}</span>
+              </div>
+            ))}
+          </div>
+          <div className="section-sublabel">Disease prevalence in sample</div>
+          <div className="prev-grid">
+            {[
+              { cond: "Pneumothorax",    prev: 8.2,  color: "#f87171" },
+              { cond: "Pleural Effusion",prev: 12.7, color: "#fbbf24" },
+              { cond: "Pulmonary Edema", prev: 9.5,  color: "#60a5fa" },
+              { cond: "No finding",      prev: 69.6, color: "var(--ok)" },
+            ].map(({ cond, prev, color }) => (
+              <div key={cond} className="prev-row">
+                <span className="prev-label">{cond}</span>
+                <div className="prev-track">
+                  <div className="prev-fill" style={{ width: `${prev}%`, background: color }} />
+                </div>
+                <span className="prev-val">{prev}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Prompts */}
+        <div className="data-section">
+          <div className="section-label">Prompts used</div>
+          <div className="prompt-display-grid">
+            {[
+              {
+                key: "std", label: "Standard prompt", short: "STD",
+                text: `Does this chest X-ray show any of the following findings? For each condition respond with "present" or "absent". Also rate the overall severity from 1 (minimal/incidental) to 5 (critical/life-threatening).
+
+Respond ONLY in this exact JSON format - no explanation, no preamble:
+{
+  "pneumothorax":     "present" | "absent",
+  "pleural_effusion": "present" | "absent",
+  "pulmonary_edema":  "present" | "absent",
+  "severity": 1-5
+}`,
+              },
+              {
+                key: "cot", label: "Chain-of-Thought prompt", short: "CoT",
+                text: `Think step by step. Analyze this chest X-ray carefully before giving your final answer.
+
+Step 1 - Image quality & overview: describe the projection, rotation, and overall quality.
+Step 2 - Pneumothorax: look for a pleural line, absent lung markings in the periphery, or tracheal deviation.
+Step 3 - Pleural effusion: look for blunting of the costophrenic angles, meniscus sign, or hemithorax opacification.
+Step 4 - Pulmonary edema: look for increased vascular markings, perihilar haze, Kerley B lines, or bat-wing pattern.
+Step 5 - Severity: considering all findings, rate from 1 (minimal/incidental) to 5 (critical/life-threatening).
+
+After your reasoning, provide your final answer ONLY in this JSON format:
+{
+  "pneumothorax":     "present" | "absent",
+  "pleural_effusion": "present" | "absent",
+  "pulmonary_edema":  "present" | "absent",
+  "severity": 1-5
+}`,
+              },
+            ].map(({ key, label, short, text }) => (
+              <div key={key} className="prompt-display-card">
+                <div className="prompt-display-header">
+                  <span className="prompt-display-label">{label}</span>
+                  <span className="prompt-chip">{short}</span>
+                </div>
+                <pre className="prompt-display-body">{text}</pre>
+              </div>
+            ))}
+          </div>
+        </div>
+
         <div className="ground-json">
-          <div className="section-label">JSON data - ข้อมูลจัดเก็บแบบ JSON</div>
+          <div className="section-label">JSON data</div>
           <JsonFilesViewer files={[
             { name: "ground_truth.json",  desc: "Ground truth data used by the image table",                  code: groundTruthJson,  data: groundTruthData() },
             { name: "raw_responses.json", desc: "All model responses grouped by image, model, and prompt",    code: rawResponsesJson, data: rawResponsesData() },
@@ -989,6 +1654,66 @@ export default function App() {
                     <span className="kappa-val"><AnimatedNum value={parseFloat(avgSev(m, "cot"))} run={doAnimateCards.current} /></span>
                   </div>
                 </div>
+                {(() => {
+                  const ks=cohensKappa(m,"std"), kc=cohensKappa(m,"cot");
+                  const wks=weightedKappaSeverity(m,"std"), wkc=weightedKappaSeverity(m,"cot");
+                  const rs=pearsonSeverity(m,"std"), rc=pearsonSeverity(m,"cot");
+                  const ciS=classAccCI(m,"std"), ciC=classAccCI(m,"cot");
+                  const kColor=v=>parseFloat(v)>=0.6?"var(--ok)":parseFloat(v)>=0.4?"var(--warn)":"var(--bad)";
+                  const rColor=v=>parseFloat(v)>=0.6?"var(--ok)":parseFloat(v)>=0.3?"var(--warn)":"var(--bad)";
+                  return (
+                    <>
+                      <div className="kappa-row split">
+                        <span className="kappa-label">Cohen's κ</span>
+                        <div className="kappa-split">
+                          <span className="kappa-val" style={{color:kColor(ks)}}>{ks}</span>
+                          <span className="kappa-sep">|</span>
+                          <span className="kappa-val" style={{color:kColor(kc)}}>{kc}</span>
+                        </div>
+                      </div>
+                      <div className="kappa-row split">
+                        <span className="kappa-label">Weighted κ (sev)</span>
+                        <div className="kappa-split">
+                          <span className="kappa-val" style={{color:kColor(wks)}}>{wks}</span>
+                          <span className="kappa-sep">|</span>
+                          <span className="kappa-val" style={{color:kColor(wkc)}}>{wkc}</span>
+                        </div>
+                      </div>
+                      <div className="kappa-row split">
+                        <span className="kappa-label">Severity MAE</span>
+                        <div className="kappa-split">
+                          {(() => {
+                            const ms=severityMAE(m,"std"), mc=severityMAE(m,"cot");
+                            const maeColor=v=>parseFloat(v)<=0.5?"var(--ok)":parseFloat(v)<=1?"var(--warn)":"var(--bad)";
+                            return (
+                              <>
+                                <span className="kappa-val" style={{color:maeColor(ms)}}>{ms}</span>
+                                <span className="kappa-sep">|</span>
+                                <span className="kappa-val" style={{color:maeColor(mc)}}>{mc}</span>
+                              </>
+                            );
+                          })()}
+                        </div>
+                      </div>
+                      <div className="kappa-row split">
+                        <span className="kappa-label">Pearson r (sev)</span>
+                        <div className="kappa-split">
+                          <span className="kappa-val" style={{color:rColor(rs)}}>{rs}</span>
+                          <span className="kappa-sep">|</span>
+                          <span className="kappa-val" style={{color:rColor(rc)}}>{rc}</span>
+                        </div>
+                      </div>
+                      <div className="kappa-row split">
+                        <span className="kappa-label">95% CI</span>
+                        <div className="kappa-split">
+                          <span className="kappa-val kappa-ci">{ciS.low.toFixed(2)}-{ciS.high.toFixed(2)}</span>
+                          <span className="kappa-sep">|</span>
+                          <span className="kappa-val kappa-ci">{ciC.low.toFixed(2)}-{ciC.high.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
                 <div className="kappa-row split kappa-row-headers">
                   <span className="kappa-label" />
                   <div className="kappa-split">
@@ -1003,7 +1728,7 @@ export default function App() {
 
           {/* Per-condition: split STD vs CoT side by side */}
           <div ref={condRef} className={`cond-section${condVisible ? " cond-visible" : ""}`}>
-            <div className="section-label">Per-condition accuracy - ความแม่นยำแต่ละภาวะ (%)</div>
+            <div className="section-label">Per-condition accuracy (%)</div>
             <div className="cond-grid">
               {CONDS.map(cond => (
                 <div key={cond} className="cond-card">
@@ -1032,12 +1757,22 @@ export default function App() {
             </div>
           </div>
 
+          {/* Per-condition metrics table */}
+          <div className="ss-section">
+            <div className="section-label">Per-condition metrics - Sens / Spec / PPV / NPV / F1 / LR</div>
+            <div className="ss-cond-tabs-grid">
+              {CONDS.map((cond, i) => (
+                <SSCondBlock key={cond} cond={cond} index={i} />
+              ))}
+            </div>
+          </div>
+
           {/* JSON section */}
-          <div ref={jsonRef} className={`reveal-section${jsonVisible ? " visible" : ""}`} style={{ marginTop: "1.75rem" }}>
-            <div className="section-label">Data structure Examples - ตัวอย่างการเก็บข้อมูล</div>
+          <div ref={jsonRef} className={`dash-json-section reveal-section${jsonVisible ? " visible" : ""}`} style={{ marginTop: "1.75rem" }}>
+            <div className="section-label">Data structure examples</div>
             <JsonFileBlock
               filename="ground_truth.json"
-              desc="data set ของคำตอบที่ถูกต้อง มาตรฐานที่ใช้วัดผล"
+              desc="Reference answers used as the evaluation standard"
               code={`{
   "CXR_0001": { // image ID
     "pneumothorax":     "present",  // present | absent
@@ -1056,7 +1791,7 @@ export default function App() {
             />
             <JsonFileBlock
               filename="raw_responses.json"
-              desc="สิ่งที่ AI แต่ละตัวตอบมา แยกเป็น std/cot ตามprompt"
+              desc="Raw model answers grouped by prompt type (std / cot)"
               code={`{
   "CXR_0001": {
     "GPT-4o": {
@@ -1079,14 +1814,14 @@ export default function App() {
             />
             <JsonFileBlock
               filename="scores.json"
-              desc="คะแนนที่คำนวณมาได้ (ถ้าเปลี่ยนสูตรแค่ recalculate ไฟล์นี้ใหม่)"
+              desc="Computed scores"
               code={`{
   "CXR_0001": {
     "GPT-4o": {
       "std": {
-        "pneumothorax":     1.0,  // ตอบถูก คะแนน 1
-        "pleural_effusion": 1.0,  
-        "pulmonary_edema":  0.0,  // ตอบผิด คะแนน 0
+        "pneumothorax":     1.0,  // correct → 1
+        "pleural_effusion": 1.0,
+        "pulmonary_edema":  0.0,  // wrong → 0
         "severity":         0.75, // 1 - (|predicted - ground_truth| ÷ 4)
         "total":            0.71  // (avg of classification + severity) ÷ 2
       },
@@ -1103,21 +1838,21 @@ export default function App() {
             />
             <JsonFileBlock
               filename="metadata.json"
-              desc="ข้อมูลการทดลอง, meta data ต่างๆ และ config ที่ใช้รัน"
+              desc="Experiment metadata and run configuration"
               code={`{
-  "experiment_date": "2025-05-22",  // วันที่ทดลอง
-  "dataset": "NIH ChestX-ray14",    // data set ที่ใช้
-  "total_images": 1000,             // จำนวนภาพรวม
-  "runs_per_image": 5,              // จำนวนครั้งที่ให้ AI วิเคราะห์ซ้ำแต่ละภาพ
-  "models": {                       // รายละเอียดแต่ละ model
+  "experiment_date": "2025-05-22",  // experiment date
+  "dataset": "NIH ChestX-ray14",    // dataset used
+  "total_images": 1000,             // total image count
+  "runs_per_image": 5,              // inference runs per image
+  "models": {                       // model details
     "GPT-4o":  { "version": "gpt-4o-2024-11-20",        "temp": 0 },
     "Claude":  { "version": "claude-sonnet-4-20250514",  "temp": 0 },
     "Gemini":  { "version": "gemini-1.5-pro-002",        "temp": 0 },
     "Grok":    { "version": "grok-2-vision-1212",        "temp": 0 }
   },
   "prompts": {
-    "std": "Does this chest X-ray show the following...",        //คำสั่ง prompt แบบปกติ standard
-    "cot": "Think step by step. First describe what you see..."  //คำสั่ง prompt แบบ chain-of-thought
+    "std": "Does this chest X-ray show the following...",        // standard prompt
+    "cot": "Think step by step. First describe what you see..."  // chain-of-thought prompt
   }
 }`}
             />
@@ -1131,7 +1866,7 @@ export default function App() {
             {[["all","All"],["wrong","Has errors"],["correct","All correct"]].map(([f,l]) => (
               <button key={f} onClick={() => setFilter(f)} className={`filter-btn${filter === f ? " active" : ""}`}>{l}</button>
             ))}
-            <span className="filter-note">[ all correct คือ ทุก model ตอบถูกทั้งหมด (ได้ 1 ทุกตัว) ]</span>
+            <span className="filter-note">[ "all correct" = every model scored 1 on all conditions ]</span>
             <span className="filter-count">{filtered.length} images</span>
           </div>
           <div className="table-scroll">
@@ -1268,10 +2003,10 @@ export default function App() {
       {tab === "graphs" && <GraphsPage />}
       {tab === "data" && <GroundTruthPage />}
       <footer className="footer">
-          CXR Benchmark Prototype · Built by {" "}
-  <a href="https://github.com/2i03e2f" target="_blank" rel="noreferrer" className="footer-link">
-            2i03e2f
-  </a>{" "}
+        CXR Benchmark Prototype · Built by{" "}
+        <a href="https://github.com/2i03e2f" target="_blank" rel="noreferrer" className="footer-link">
+          2i03e2f
+        </a>
       </footer>
     </div>
   );
