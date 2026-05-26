@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, Fragment } from "react";
+import { createPortal } from "react-dom";
 import "./App.css";
 
 /* Tracks which tabs have been viewed in this session - animations only fire on
    the FIRST visit per tab per page load. Refresh resets back to false. */
-const SEEN = { dashboard: false, graphs: false, stdCharts: false, cotCharts: false, ssMetrics: false };
+const SEEN = { dashboard: false, graphs: false, stdCharts: false, cotCharts: false, ssMetrics: false, deltaSection: false };
 
 /* ─── Count-up hook ─── */
 function useCountUp(target, duration = 950, delay = 0, run = true) {
@@ -218,7 +219,9 @@ const MOCK_DATA = Array.from({ length: 20 }, (_, i) => {
       cot: genPrompt(MODEL_ERROR_RATES[m].cot),
     };
   });
-  return { id: `CXR_${String(i + 1).padStart(4, "0")}`, ground_truth: gt, models };
+  const sex = Math.random() > 0.5 ? "M" : "F";
+  const age = Math.floor(Math.random() * 73) + 18;
+  return { id: `CXR_${String(i + 1).padStart(4, "0")}`, ground_truth: gt, models, sex, age };
 });
 
 /* ─── Pre-computed aggregates ─── */
@@ -312,8 +315,11 @@ function cohensKappa(model, prompt) {
 function classAccCI(model, prompt) {
   const p = parseFloat(avgClass(model, prompt));
   const n = MOCK_DATA.length;
-  const se = Math.sqrt(p*(1-p)/n);
-  return { low: Math.max(0, p-1.96*se), high: Math.min(1, p+1.96*se) };
+  const z = 1.96;
+  const denom = 1 + z*z/n;
+  const center = (p + z*z/(2*n)) / denom;
+  const margin = z * Math.sqrt(p*(1-p)/n + z*z/(4*n*n)) / denom;
+  return { low: Math.max(0, center - margin), high: Math.min(1, center + margin) };
 }
 
 function normalCDF(z) {
@@ -366,6 +372,30 @@ function mcnemarTest(modelA, modelB, prompt) {
   return {chi2:chi2.toFixed(2),p,sig:rawP<0.05,b,c};
 }
 
+function aucROC(model, cond, prompt) {
+  const { sens, spec } = condStats(model, cond, prompt);
+  return (sens + spec) / 2;
+}
+
+function accuracyBySex(model, prompt) {
+  const groups = { M: { total: 0, correct: 0 }, F: { total: 0, correct: 0 } };
+  MOCK_DATA.forEach(d => {
+    groups[d.sex].total++;
+    if (CONDS.every(c => d.models[model][prompt][c] === d.ground_truth[c])) groups[d.sex].correct++;
+  });
+  return groups;
+}
+
+function accuracyByAgeGroup(model, prompt) {
+  const groups = { "18–40": { total: 0, correct: 0 }, "41–60": { total: 0, correct: 0 }, "61+": { total: 0, correct: 0 } };
+  MOCK_DATA.forEach(d => {
+    const key = d.age <= 40 ? "18–40" : d.age <= 60 ? "41–60" : "61+";
+    groups[key].total++;
+    if (CONDS.every(c => d.models[model][prompt][c] === d.ground_truth[c])) groups[key].correct++;
+  });
+  return groups;
+}
+
 const ACCURACY = Object.fromEntries(MODELS.map(m => [m, {
   std: avgTotal(m, "std"),
   cot: avgTotal(m, "cot"),
@@ -375,6 +405,15 @@ const BEST = MODELS.reduce((a, b) => {
   const bMax = Math.max(parseFloat(ACCURACY[b].std), parseFloat(ACCURACY[b].cot));
   return aMax > bMax ? a : b;
 });
+
+/* ─── Demographics ─── */
+const DEMO = (() => {
+  const malePct = Math.round(MOCK_DATA.filter(d => d.sex === "M").length / MOCK_DATA.length * 100);
+  const ages = MOCK_DATA.map(d => d.age).sort((a, b) => a - b);
+  const mid = Math.floor(ages.length / 2);
+  const median = ages.length % 2 === 0 ? Math.round((ages[mid - 1] + ages[mid]) / 2) : ages[mid];
+  return { malePct, femalePct: 100 - malePct, minAge: ages[0], maxAge: ages[ages.length - 1], median };
+})();
 
 const scoreColor = (v) => v === 1 ? "#6ee7b7" : v >= 0.75 ? "#a3e0c8" : v >= 0.5 ? "#fde68a" : "#f87171";
 
@@ -662,14 +701,15 @@ function SSCondBlock({ cond, index }) {
           <thead>
             <tr>
               <th>Model</th><th>Prompt</th>
-              <th>Sens</th><th>Spec</th><th>PPV</th><th>NPV</th><th>F1</th>
+              <th>Sens</th><th>Spec</th><th>AUC<span className="th-sub">≥0.7</span></th><th>PPV</th><th>NPV</th><th>F1</th>
               <th>LR+<span className="th-sub">≥10 good</span></th>
-              <th>LR−<span className="th-sub">≤0.1 good</span></th>
+              <th>LR-<span className="th-sub">≤0.1 good</span></th>
             </tr>
           </thead>
           <tbody>
             {MODELS.flatMap(m => PROMPTS.map(p => {
               const { sens, spec, ppv, npv, f1 } = condStats(m, cond, p);
+              const auc = aucROC(m, cond, p);
               const lrp = spec < 1 ? sens / (1 - spec) : null;
               const lrm = spec > 0 ? (1 - sens) / spec : null;
               return (
@@ -678,6 +718,7 @@ function SSCondBlock({ cond, index }) {
                   <td><span className="prompt-chip">{PROMPT_SHORT[p]}</span></td>
                   <td style={{color:sc2(sens)}}>{fmt(sens)}</td>
                   <td style={{color:sc2(spec)}}>{fmt(spec)}</td>
+                  <td style={{color:sc2(auc)}}>{fmt(auc)}</td>
                   <td style={{color:sc2(ppv)}}>{fmt(ppv)}</td>
                   <td style={{color:sc2(npv)}}>{fmt(npv)}</td>
                   <td style={{color:sc2(f1)}}>{fmt(f1)}</td>
@@ -855,6 +896,19 @@ function StatComparisonSection() {
     for (let j=i+1;j<MODELS.length;j++)
       pairs.push([MODELS[i], MODELS[j]]);
 
+  useEffect(() => {
+    if (infoOpen) document.body.style.overflow = 'hidden';
+    else document.body.style.overflow = '';
+    return () => { document.body.style.overflow = ''; };
+  }, [infoOpen]);
+
+  useEffect(() => {
+    if (!infoOpen) return;
+    const onKey = (e) => { if (e.key === 'Escape') setInfoOpen(false); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [infoOpen]);
+
   return (
     <div>
       <div className="section-label">
@@ -862,7 +916,7 @@ function StatComparisonSection() {
         <button className="info-btn" onClick={() => setInfoOpen(true)} title="About McNemar's test">i</button>
       </div>
 
-      {infoOpen && (
+      {infoOpen && createPortal(
         <div className="info-overlay" onClick={() => setInfoOpen(false)}>
           <div className="info-modal" onClick={e => e.stopPropagation()}>
             <button className="info-modal-close" onClick={() => setInfoOpen(false)}>✕</button>
@@ -901,7 +955,8 @@ function StatComparisonSection() {
               Works best when b + c ≥ 10. If b + c is very small, results may be unreliable.
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       <div className="stat-desc">
@@ -1000,11 +1055,11 @@ function ConfusionMatrixSection({ columns = 2 }) {
               <div className="cm-matrix">
                 <div className="cm-corner" />
                 <div className="cm-col-head">Actual +</div>
-                <div className="cm-col-head">Actual −</div>
+                <div className="cm-col-head">Actual -</div>
                 <div className="cm-row-head">Pred +</div>
                 <div className="cm-cell cm-tp" style={{ "--i": TP/maxV }}><span className="cm-n">{TP}</span><span className="cm-tag2">TP</span></div>
                 <div className="cm-cell cm-fp" style={{ "--i": FP/maxV }}><span className="cm-n">{FP}</span><span className="cm-tag2">FP</span></div>
-                <div className="cm-row-head">Pred −</div>
+                <div className="cm-row-head">Pred -</div>
                 <div className="cm-cell cm-fn" style={{ "--i": FN/maxV }}><span className="cm-n">{FN}</span><span className="cm-tag2">FN</span></div>
                 <div className="cm-cell cm-tn" style={{ "--i": TN/maxV }}><span className="cm-n">{TN}</span><span className="cm-tag2">TN</span></div>
               </div>
@@ -1025,15 +1080,266 @@ function ConfusionMatrixSection({ columns = 2 }) {
   );
 }
 
+/* ─── STD vs CoT delta table ─── */
+function PromptDeltaSection() {
+  const [ref, inView] = useInView(0.05);
+  const [visible, setVisible] = useState(SEEN.deltaSection);
+  useEffect(() => { if (inView && !visible) { SEEN.deltaSection = true; setVisible(true); } }, [inView]); // eslint-disable-line
+
+  const metrics = [
+    { label: "Total score",    fn: avgTotal,             positiveGood: true  },
+    { label: "Classification", fn: avgClass,             positiveGood: true  },
+    { label: "Sev score",      fn: avgSev,               positiveGood: true  },
+    { label: "Cohen's κ",      fn: cohensKappa,          positiveGood: true  },
+    { label: "Sev MAE",        fn: severityMAE,          positiveGood: false },
+    { label: "Pearson r",      fn: pearsonSeverity,      positiveGood: true  },
+  ];
+  const fmtDelta = (d, positiveGood) => {
+    const sign = d > 0 ? "+" : "";
+    const color = Math.abs(d) < 0.001
+      ? "var(--ink-mute)"
+      : d > 0
+        ? (positiveGood ? "var(--ok)"  : "var(--bad)")
+        : (positiveGood ? "var(--bad)" : "var(--ok)");
+    return { text: `${sign}${d.toFixed(2)}`, color };
+  };
+  return (
+    <div ref={ref} className={`delta-section reveal-section${visible ? " visible" : ""}`}>
+      <div className="section-label">Prompt effect - CoT vs Standard (Δ = CoT - STD)</div>
+      <div className="sg-desc">Positive Δ = CoT improves · Negative Δ = CoT degrades · Sev MAE: negative Δ = improvement (lower error)</div>
+      <div className="sg-table-scroll">
+        <table className="sg-table">
+          <thead>
+            <tr>
+              <th style={{ textAlign: "left" }}>Model</th>
+              {metrics.map(m => <th key={m.label}>{m.label}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {MODELS.map(model => (
+              <tr key={model}>
+                <td className="ss-model-cell"><ModelIcon model={model} size={11}/><span>{model}</span></td>
+                {metrics.map(({ label, fn, positiveGood }) => {
+                  const delta = parseFloat(fn(model, "cot")) - parseFloat(fn(model, "std"));
+                  const { text, color } = fmtDelta(delta, positiveGood);
+                  return <td key={label} className="stat-n" style={{ color }}>{text}</td>;
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Cross-task comparison: classification vs severity grading ─── */
+function CrossTaskSection() {
+  const [ref, inView] = useInView(0.05);
+  const [visible, setVisible] = useState(SEEN.deltaSection);
+  useEffect(() => { if (inView && !visible) { SEEN.deltaSection = true; setVisible(true); } }, [inView]); // eslint-disable-line
+
+  const sc  = v => parseFloat(v) >= 0.7 ? "var(--ok)" : parseFloat(v) >= 0.5 ? "var(--warn)" : "var(--bad)";
+  const scM = v => parseFloat(v) <= 0.5 ? "var(--ok)" : parseFloat(v) <= 1   ? "var(--warn)" : "var(--bad)";
+  const scR = v => parseFloat(v) >= 0.6 ? "var(--ok)" : parseFloat(v) >= 0.3 ? "var(--warn)" : "var(--bad)";
+  return (
+    <div ref={ref} className={`cross-task-section reveal-section${visible ? " visible" : ""}`} style={{ "--reveal-delay": "0.08s" }}>
+      <div className="section-label">Cross-task performance - Classification vs Severity grading</div>
+      <div className="sg-desc">Direct comparison of each model across the two evaluation tasks and both prompt types.</div>
+      <div className="sg-table-scroll">
+        <table className="sg-table">
+          <thead>
+            <tr>
+              <th style={{ textAlign: "left" }}>Model</th>
+              <th style={{ textAlign: "left" }}>Prompt</th>
+              <th>Class avg</th><th>Sev avg</th>
+              <th>Cohen's κ</th><th>Weighted κ</th>
+              <th>MAE</th><th>Pearson r</th>
+            </tr>
+          </thead>
+          <tbody>
+            {MODELS.flatMap(model => PROMPTS.map(prompt => (
+              <tr key={`${model}-${prompt}`}>
+                <td className="ss-model-cell"><ModelIcon model={model} size={11}/><span>{model}</span></td>
+                <td><span className="prompt-chip">{PROMPT_SHORT[prompt]}</span></td>
+                <td style={{ color: sc(avgClass(model, prompt)) }}>{avgClass(model, prompt)}</td>
+                <td style={{ color: sc(avgSev(model, prompt)) }}>{avgSev(model, prompt)}</td>
+                <td style={{ color: sc(cohensKappa(model, prompt)) }}>{cohensKappa(model, prompt)}</td>
+                <td style={{ color: sc(weightedKappaSeverity(model, prompt)) }}>{weightedKappaSeverity(model, prompt)}</td>
+                <td style={{ color: scM(severityMAE(model, prompt)) }}>{severityMAE(model, prompt)}</td>
+                <td style={{ color: scR(pearsonSeverity(model, prompt)) }}>{pearsonSeverity(model, prompt)}</td>
+              </tr>
+            )))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Demographic subgroup analysis ─── */
+function DemographicSubgroupSection() {
+  const [ref, inView] = useInView(0.05);
+  const [visible, setVisible] = useState(true);
+  useEffect(() => { if (inView && !visible) setVisible(true); }, [inView]); // eslint-disable-line
+  const [prompt, setPrompt] = useState("std");
+  const sc = v => v >= 0.7 ? "var(--ok)" : v >= 0.5 ? "var(--warn)" : "var(--bad)";
+  const sexGroups = ["M", "F"];
+  const ageGroups = ["18–40", "41–60", "61+"];
+  const rateCell = (g, mi) => {
+    const rate = g.total > 0 ? g.correct / g.total : null;
+    return (
+      <td key={mi} className="stat-n" style={{ color: rate !== null ? sc(rate) : "var(--ink-faint)" }}>
+        {rate !== null ? `${(rate * 100).toFixed(0)}%` : "-"}
+      </td>
+    );
+  };
+  return (
+    <div ref={ref} className={`reveal-section${visible ? " visible" : ""}`}>
+      <div className="section-label">Accuracy by demographic subgroup</div>
+      <div className="sg-desc">Classification accuracy (all 3 conditions correct) by sex and age group. Detects potential demographic bias.</div>
+      <div className="cm-ctrl-group" style={{ marginBottom: "1rem" }}>
+        {PROMPTS.map(p => (
+          <button key={p} className={`cm-ctrl-btn${prompt===p?" active":""}`} onClick={() => setPrompt(p)}>
+            {PROMPT_LABELS[p]}
+          </button>
+        ))}
+      </div>
+      <div className="sg-desc" style={{ marginBottom: "0.4rem", fontWeight: 600 }}>By sex</div>
+      <div className="sg-table-scroll">
+        <table className="sg-table">
+          <thead>
+            <tr>
+              <th>Sex</th><th>n</th>
+              {MODELS.map(m => <th key={m}><ModelIcon model={m} size={11}/> {m}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {sexGroups.map(sex => {
+              const gpm = MODELS.map(m => accuracyBySex(m, prompt)[sex] || { total: 0, correct: 0 });
+              return (
+                <tr key={sex}>
+                  <td><span className="prompt-chip">{sex}</span></td>
+                  <td className="stat-n">{gpm[0].total}</td>
+                  {gpm.map(rateCell)}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="sg-desc" style={{ margin: "1rem 0 0.4rem", fontWeight: 600 }}>By age group</div>
+      <div className="sg-table-scroll">
+        <table className="sg-table">
+          <thead>
+            <tr>
+              <th>Age</th><th>n</th>
+              {MODELS.map(m => <th key={m}><ModelIcon model={m} size={11}/> {m}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {ageGroups.map(ag => {
+              const gpm = MODELS.map(m => accuracyByAgeGroup(m, prompt)[ag] || { total: 0, correct: 0 });
+              return (
+                <tr key={ag}>
+                  <td>{ag}</td>
+                  <td className="stat-n">{gpm[0].total}</td>
+                  {gpm.map(rateCell)}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Severity scatter plot: predicted vs actual ─── */
+function SeverityScatterSection() {
+  const [ref, inView] = useInView(0.05);
+  const [visible, setVisible] = useState(true);
+  useEffect(() => { if (inView && !visible) setVisible(true); }, [inView]); // eslint-disable-line
+  const [prompt, setPrompt] = useState("std");
+  const [activeModel, setActiveModel] = useState("GPT-4o");
+
+  const W = 580, H = 210;
+  const ML = 82, MR = 82, MT = 26, MB = 50;
+  const inW = W - ML - MR, inH = H - MT - MB;
+  // Padded range so jittered dots never escape the plot area
+  const LO = 0.7, HI = 5.3, RNG = HI - LO;
+  const px = v => ML + ((v - LO) / RNG) * inW;
+  const py = v => MT + inH - ((v - LO) / RNG) * inH;
+  const ticks = [1, 2, 3, 4, 5];
+
+  const points = MOCK_DATA.map((row, i) => ({
+    gt:   row.ground_truth.severity,
+    pred: row.models[activeModel][prompt].severity,
+    jx:   ((i * 17 + 3) % 11 - 5) * 1.1,
+    jy:   ((i * 13 + 7) % 11 - 5) * 1.1,
+  }));
+  const col = MODEL_COLORS[activeModel].dot;
+
+  return (
+    <div ref={ref} className={`reveal-section${visible ? " visible" : ""}`} style={{ "--reveal-delay": "0.08s" }}>
+      <div className="section-label">Severity: predicted vs actual</div>
+      <div className="sg-desc">Each dot = one image. Dashed diagonal = perfect prediction. Spread = error magnitude.</div>
+      <div className="cm-ctrl-group" style={{ marginBottom: "0.5rem", flexWrap: "wrap" }}>
+        {MODELS.map(m => (
+          <button key={m} className={`cm-ctrl-btn${activeModel===m?" active":""}`} onClick={() => setActiveModel(m)}>{m}</button>
+        ))}
+      </div>
+      <div className="cm-ctrl-group" style={{ marginBottom: "1rem", marginLeft: "1.5rem" }}>
+        {PROMPTS.map(p => (
+          <button key={p} className={`cm-ctrl-btn${prompt===p?" active":""}`} onClick={() => setPrompt(p)}>
+            {PROMPT_LABELS[p]}
+          </button>
+        ))}
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" className="chart-svg">
+        <defs>
+          <clipPath id="scatter-plot-clip">
+            <rect x={ML} y={MT} width={inW} height={inH}/>
+          </clipPath>
+        </defs>
+        {/* Grid + ticks */}
+        {ticks.map(t => (
+          <g key={t}>
+            <line x1={ML} y1={py(t)} x2={ML+inW} y2={py(t)} stroke="rgba(255,255,255,0.05)" strokeWidth={1}/>
+            <line x1={px(t)} y1={MT} x2={px(t)} y2={MT+inH} stroke="rgba(255,255,255,0.05)" strokeWidth={1}/>
+            <text x={ML-6} y={py(t)+4} textAnchor="end" fontSize={9} fill="var(--ink-mute)">{t}</text>
+            <text x={px(t)} y={MT+inH+14} textAnchor="middle" fontSize={9} fill="var(--ink-mute)">{t}</text>
+          </g>
+        ))}
+        {/* Axes */}
+        <line x1={ML} y1={MT} x2={ML} y2={MT+inH} stroke="rgba(255,255,255,0.15)" strokeWidth={1}/>
+        <line x1={ML} y1={MT+inH} x2={ML+inW} y2={MT+inH} stroke="rgba(255,255,255,0.15)" strokeWidth={1}/>
+        {/* Diagonal reference */}
+        <line x1={px(1)} y1={py(1)} x2={px(5)} y2={py(5)} stroke="rgba(255,255,255,0.18)" strokeWidth={1} strokeDasharray="4,3"/>
+        {/* Clipped data points */}
+        <g clipPath="url(#scatter-plot-clip)">
+          {points.map((pt, i) => (
+            <circle key={i} cx={px(pt.gt)+pt.jx} cy={py(pt.pred)+pt.jy} r={3} fill={col} opacity={0.72}/>
+          ))}
+        </g>
+        {/* r / MAE in right margin */}
+        <text x={ML+inW+10} y={MT+22} textAnchor="start" fontSize={10} fontWeight="600" fill={col}>r = {pearsonSeverity(activeModel, prompt)}</text>
+        <text x={ML+inW+10} y={MT+38} textAnchor="start" fontSize={9} fill="var(--ink-mute)">MAE = {severityMAE(activeModel, prompt)}</text>
+        {/* Axis labels */}
+        <text x={ML+inW/2} y={H-6} textAnchor="middle" fontSize={9} fill="var(--ink-mute)">Ground truth severity</text>
+        <text x={ML/2} y={MT+inH/2} textAnchor="middle" fontSize={9} fill="var(--ink-mute)" transform={`rotate(-90,${ML/2},${MT+inH/2})`}>Predicted</text>
+      </svg>
+    </div>
+  );
+}
+
 /* ─── App ─── */
 function GraphsPage() {
   const [stdOpen, setStdOpen] = useState(false);
   const [cotOpen, setCotOpen] = useState(false);
   const [stdEverOpened, setStdEverOpened] = useState(false);
   const [cotEverOpened, setCotEverOpened] = useState(false);
-  const [statEverInCol, setStatEverInCol] = useState(false);
-  const [confEverInCol, setConfEverInCol] = useState(false);
-  const [confEverFull, setConfEverFull] = useState(false);
+  const [confEverRight, setConfEverRight] = useState(false);
   const nOpen = (stdOpen ? 1 : 0) + (cotOpen ? 1 : 0);
   const doAnimate = useRef(!SEEN.graphs);
   const [barsVisible, setBarsVisible] = useState(SEEN.graphs);
@@ -1044,11 +1350,7 @@ function GraphsPage() {
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  useEffect(() => {
-    if (nOpen >= 1) setStatEverInCol(true);
-    if (nOpen === 1) setConfEverFull(true);
-    if (nOpen >= 2) setConfEverInCol(true);
-  }, [nOpen]);
+  useEffect(() => { if (nOpen >= 2) setConfEverRight(true); }, [nOpen]);
 
   const toggleStd = () => setStdOpen(v => { if (!v) setStdEverOpened(true); return !v; });
   const toggleCot = () => setCotOpen(v => { if (!v) setCotEverOpened(true); return !v; });
@@ -1205,53 +1507,30 @@ function GraphsPage() {
               </div>
             </div>
           </div>
+          <div className="gg-cell"><SeverityScatterSection /></div>
+          {/* Confusion slides out of left when both charts open */}
+          <div className={`gg-col-collapse${nOpen < 2 ? " open" : ""}`}>
+            <div className="gg-col-inner">
+              <div className="gg-cell"><ConfusionMatrixSection /></div>
+            </div>
+          </div>
         </div>
 
-        {/* Right: analysis sections + adaptive heavy sections */}
+        {/* Right: comparison & analysis tables */}
         <div className="graphs-col">
           <div className="gg-cell"><InterModelAgreementSection /></div>
           <div className="gg-cell"><SeveritySubgroupSection /></div>
           <div className="gg-cell"><CooccurrenceSection /></div>
-
-          {/* Stat slides in when nOpen >= 1 */}
-          <div className={`gg-col-collapse${nOpen >= 1 ? " open" : ""}`}>
-            <div className="gg-col-inner">
-              {statEverInCol && <div className="gg-cell"><StatComparisonSection /></div>}
-            </div>
-          </div>
-
-          {/* Confusion slides in when nOpen >= 2 */}
+          <div className="gg-cell"><DemographicSubgroupSection /></div>
+          <div className="gg-cell"><StatComparisonSection /></div>
+          {/* Confusion slides into right when both charts open */}
           <div className={`gg-col-collapse${nOpen >= 2 ? " open" : ""}`}>
             <div className="gg-col-inner">
-              {confEverInCol && <div className="gg-cell"><ConfusionMatrixSection /></div>}
+              {confEverRight && <div className="gg-cell"><ConfusionMatrixSection /></div>}
             </div>
           </div>
         </div>
 
-      </div>
-
-      {/* ── Bottom: adaptive heavy section (hidden when nOpen >= 2) ── */}
-      <div className={`graphs-bottom-area${nOpen < 2 ? " open" : ""}`}>
-        <div className="graphs-bottom-area-inner">
-
-          {/* State 0: confusion 2×2 + stat side by side */}
-          <div className={`graphs-bottom-state${nOpen === 0 ? " open" : ""}`}>
-            <div className="graphs-bottom-state-inner">
-              <div className="graphs-bottom">
-                <div className="gg-cell"><ConfusionMatrixSection /></div>
-                <div className="gg-cell"><StatComparisonSection /></div>
-              </div>
-            </div>
-          </div>
-
-          {/* State 1: confusion 1×4 full width */}
-          <div className={`graphs-bottom-state${nOpen === 1 ? " open" : ""}`}>
-            <div className="graphs-bottom-state-inner">
-              {confEverFull && <div className="gg-cell"><ConfusionMatrixSection columns={4} /></div>}
-            </div>
-          </div>
-
-        </div>
       </div>
 
     </div>
@@ -1300,7 +1579,7 @@ function ModelAnswerTable({ model, prompt }) {
   );
 }
 
-const groundTruthData = () => Object.fromEntries(MOCK_DATA.map(row => [row.id, row.ground_truth]));
+const groundTruthData = () => Object.fromEntries(MOCK_DATA.map(row => [row.id, { ...row.ground_truth, sex: row.sex, age: row.age }]));
 
 const rawResponsesData = () => Object.fromEntries(MOCK_DATA.map(row => [row.id, row.models]));
 
@@ -1454,6 +1733,7 @@ function GroundTruthPage() {
                 ))}
               </div>
               <span className="gt-sev-mini">{row.ground_truth.severity}/5</span>
+              <span className="gt-sev-mini">{row.sex} · {row.age}y</span>
             </div>
           ))}
         </div>
@@ -1477,10 +1757,10 @@ function GroundTruthPage() {
           <div className="section-label">Dataset overview</div>
           <div className="dataset-grid">
             {[
-              { label: "Source",       val: "NIH ChestX-ray14",  note: "Wang et al., 2017" },
-              { label: "Total images", val: "1,000",              note: "random sample from 112,120" },
-              { label: "Sex",          val: "55% M · 45% F",     note: "Male / Female" },
-              { label: "Age range",    val: "18-90 yrs",       note: "median 51.4 years" },
+              { label: "Source",       val: "NIH ChestX-ray14",                                          note: "Wang et al., 2017" },
+              { label: "Total images", val: `${MOCK_DATA.length} (prototype)`,                          note: "target: 1,000 from 112,120" },
+              { label: "Sex",          val: `${DEMO.malePct}% M · ${DEMO.femalePct}% F`,               note: "Male / Female" },
+              { label: "Age range",    val: `${DEMO.minAge}–${DEMO.maxAge} yrs`,                       note: `median ${DEMO.median} years` },
             ].map(({ label, val, note }) => (
               <div key={label} className="ds-card">
                 <span className="ds-card-label">{label}</span>
@@ -1489,13 +1769,29 @@ function GroundTruthPage() {
               </div>
             ))}
           </div>
+          <div className="section-sublabel">Models evaluated</div>
+          <div className="model-ver-grid">
+            {[
+              { name: "GPT-4o",  version: "gpt-4o-2024-11-20",        temp: 0 },
+              { name: "Claude",  version: "claude-sonnet-4-20250514",  temp: 0 },
+              { name: "Gemini",  version: "gemini-1.5-pro-002",        temp: 0 },
+              { name: "Grok",    version: "grok-2-vision-1212",        temp: 0 },
+            ].map(({ name, version, temp }) => (
+              <div key={name} className="model-ver-card">
+                <ModelIcon model={name} size={14}/>
+                <span className="model-ver-name">{name}</span>
+                <span className="model-ver-version">{version}</span>
+                <span className="model-ver-temp">temp={temp}</span>
+              </div>
+            ))}
+          </div>
           <div className="section-sublabel">Disease prevalence in sample</div>
           <div className="prev-grid">
             {[
-              { cond: "Pneumothorax",    prev: 8.2,  color: "#f87171" },
-              { cond: "Pleural Effusion",prev: 12.7, color: "#fbbf24" },
-              { cond: "Pulmonary Edema", prev: 9.5,  color: "#60a5fa" },
-              { cond: "No finding",      prev: 69.6, color: "var(--ok)" },
+              { cond: "Pneumothorax",    prev: parseFloat((MOCK_DATA.filter(d => d.ground_truth.pneumothorax === "present").length / MOCK_DATA.length * 100).toFixed(1)),    color: "#f87171" },
+              { cond: "Pleural Effusion",prev: parseFloat((MOCK_DATA.filter(d => d.ground_truth.pleural_effusion === "present").length / MOCK_DATA.length * 100).toFixed(1)), color: "#fbbf24" },
+              { cond: "Pulmonary Edema", prev: parseFloat((MOCK_DATA.filter(d => d.ground_truth.pulmonary_edema === "present").length / MOCK_DATA.length * 100).toFixed(1)),  color: "#60a5fa" },
+              { cond: "No finding",      prev: parseFloat((MOCK_DATA.filter(d => CONDS.every(c => d.ground_truth[c] === "absent")).length / MOCK_DATA.length * 100).toFixed(1)), color: "var(--ok)" },
             ].map(({ cond, prev, color }) => (
               <div key={cond} className="prev-row">
                 <span className="prev-label">{cond}</span>
@@ -1647,7 +1943,7 @@ export default function App() {
                   </div>
                 </div>
                 <div className="kappa-row split">
-                  <span className="kappa-label">severity kappa</span>
+                  <span className="kappa-label">avg sev score</span>
                   <div className="kappa-split">
                     <span className="kappa-val"><AnimatedNum value={parseFloat(avgSev(m, "std"))} run={doAnimateCards.current} /></span>
                     <span className="kappa-sep">|</span>
@@ -1726,6 +2022,11 @@ export default function App() {
             ))}
           </div>
 
+          <div className="delta-crosstask-row">
+            <PromptDeltaSection />
+            <CrossTaskSection />
+          </div>
+
           {/* Per-condition: split STD vs CoT side by side */}
           <div ref={condRef} className={`cond-section${condVisible ? " cond-visible" : ""}`}>
             <div className="section-label">Per-condition accuracy (%)</div>
@@ -1778,13 +2079,17 @@ export default function App() {
     "pneumothorax":     "present",  // present | absent
     "pleural_effusion": "absent",
     "pulmonary_edema":  "absent",
-    "severity": 3                   // 1-5
+    "severity": 3,                  // 1-5
+    "sex": "M",                     // M | F
+    "age": 54                       // years
   },
   "CXR_0002": {
     "pneumothorax":     "absent",
     "pleural_effusion": "present",
     "pulmonary_edema":  "absent",
-    "severity": 2
+    "severity": 2,
+    "sex": "F",
+    "age": 37
   }
   // ... 1,000 images
 }`}
@@ -1880,8 +2185,8 @@ export default function App() {
               </thead>
               <tbody>
                 {filtered.map(row => (
-                  <>
-                    <tr key={row.id}
+                  <Fragment key={row.id}>
+                    <tr
                       onClick={() => setSelected(selected === row.id ? null : row.id)}
                       className={selected === row.id ? "selected" : ""}>
                       <td>
@@ -1927,8 +2232,8 @@ export default function App() {
                         );
                       })}
                     </tr>
-                    {selected === row.id && <DetailPanel key={`detail-${row.id}`} row={row} />}
-                  </>
+                    {selected === row.id && <DetailPanel row={row} />}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
