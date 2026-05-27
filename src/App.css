@@ -121,13 +121,6 @@ body {
   color: var(--ink);
   line-height: 1;
 }
-.header-title::before {
-  content: '';
-  color: var(--accent);
-  font-weight: 400;
-  margin-right: 0.4rem;
-  font-size: 0.85em;
-}
 .header-sub {
   font-family: var(--mono);
   font-size: 12px;
@@ -631,10 +624,32 @@ body {
   fill: var(--ink-mute);
   font-family: var(--mono);
 }
-.chart-tip-value {
-  font-size: 15px;
-  font-weight: 700;
+/* ─── Chart HTML tooltip (CSS px — ไม่ scale ตาม SVG viewBox) ─── */
+.chart-tip-html {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10;
+  background: var(--paper);
+  border: 1px solid var(--rule-hard);
+  border-radius: 3px;
+  padding: 7px 12px 9px;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+}
+.chart-tip-html-id {
   font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-mute);
+  margin-bottom: 4px;
+  letter-spacing: 0.02em;
+}
+.chart-tip-html-val {
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1;
 }
 /* keep old stubs in case referenced elsewhere */
 .graph-placeholder {
@@ -848,6 +863,7 @@ body {
   padding-bottom: 0.85rem;
   border-bottom: 1px solid var(--rule);
 }
+.filter-row .export-btn { margin-left: 0.75rem; }
 .filter-btn {
   padding: 8px 16px;
   font-family: var(--sans);
@@ -888,6 +904,14 @@ body {
   color: var(--ink-mute);
   font-weight: 500;
   margin-left: auto;
+}
+tr[role="button"]:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.mobile-image-card:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
 }
 .filter-count::before {
   content: 'n = ';
@@ -1398,7 +1422,7 @@ td {
 }
 
 /* ─── JSON section ─── */
-/* â”€â”€â”€ Mobile image cards â”€â”€â”€ */
+/* ─── Mobile image cards ─── */
 .mobile-card-list {
   display: none;
 }
@@ -2630,7 +2654,7 @@ td {
   border-radius: 2px;
   overflow: hidden;
 }
-/* Remove individual card borders — column is one unified panel */
+/* Remove individual card borders - column is one unified panel */
 .graphs-col > .gg-cell {
   margin-bottom: 0;
   border: none;
@@ -2823,4 +2847,33 @@ td {
   font-size: 11px;
   color: var(--ink-faint);
   white-space: nowrap;
+}
+
+/* ─── Export button ─── */
+.export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 13px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--ink-mute);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.export-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(232,154,92,0.07);
+}
+.export-btn:active {
+  background: rgba(232,154,92,0.14);
 }

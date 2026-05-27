@@ -1,10 +1,14 @@
 import { useState, useEffect, useRef, useCallback, Fragment } from "react";
 import { createPortal } from "react-dom";
 import "./App.css";
+import gpt4oIcon from "./assets/models/gpt4o.svg";
+import claudeIcon from "./assets/models/claude.svg";
+import geminiIcon from "./assets/models/gemini.svg";
+import grokIcon from "./assets/models/grok.svg";
 
 /* Tracks which tabs have been viewed in this session - animations only fire on
    the FIRST visit per tab per page load. Refresh resets back to false. */
-const SEEN = { dashboard: false, graphs: false, stdCharts: false, cotCharts: false, ssMetrics: false, deltaSection: false };
+const SEEN = { dashboard: false, graphs: false, stdCharts: false, cotCharts: false, ssMetrics: false, deltaSection: false, crossTask: false, demoSection: false, scatterSection: false };
 
 /* ─── Count-up hook ─── */
 function useCountUp(target, duration = 950, delay = 0, run = true) {
@@ -79,8 +83,10 @@ function highlightJson(code) {
       i = j + 1;
       continue;
     }
-    if (/[0-9]/.test(code[i]) && (i === 0 || !/[a-zA-Z_]/.test(code[i - 1]))) {
+    const isNeg = code[i] === '-' && i + 1 < code.length && /[0-9]/.test(code[i + 1]) && (i === 0 || /[\s,:\[]/.test(code[i - 1]));
+    if (isNeg || (/[0-9]/.test(code[i]) && (i === 0 || !/[a-zA-Z_]/.test(code[i - 1])))) {
       let j = i;
+      if (code[j] === '-') j++;
       while (j < code.length && /[0-9.]/.test(code[j])) j++;
       tokens.push({ type: "number", text: code.slice(i, j) });
       i = j;
@@ -125,11 +131,6 @@ function JsonFileBlock({ filename, desc, code }) {
     </div>
   );
 }
-
-import gpt4oIcon from "./assets/models/gpt4o.svg";
-import claudeIcon from "./assets/models/claude.svg";
-import geminiIcon from "./assets/models/gemini.svg";
-import grokIcon from "./assets/models/grok.svg";
 
 const MODEL_ICONS = {
   "GPT-4o": gpt4oIcon,
@@ -387,9 +388,9 @@ function accuracyBySex(model, prompt) {
 }
 
 function accuracyByAgeGroup(model, prompt) {
-  const groups = { "18–40": { total: 0, correct: 0 }, "41–60": { total: 0, correct: 0 }, "61+": { total: 0, correct: 0 } };
+  const groups = { "18-40": { total: 0, correct: 0 }, "41-60": { total: 0, correct: 0 }, "61+": { total: 0, correct: 0 } };
   MOCK_DATA.forEach(d => {
-    const key = d.age <= 40 ? "18–40" : d.age <= 60 ? "41–60" : "61+";
+    const key = d.age <= 40 ? "18-40" : d.age <= 60 ? "41-60" : "61+";
     groups[key].total++;
     if (CONDS.every(c => d.models[model][prompt][c] === d.ground_truth[c])) groups[key].correct++;
   });
@@ -414,6 +415,30 @@ const DEMO = (() => {
   const median = ages.length % 2 === 0 ? Math.round((ages[mid - 1] + ages[mid]) / 2) : ages[mid];
   return { malePct, femalePct: 100 - malePct, minAge: ages[0], maxAge: ages[ages.length - 1], median };
 })();
+
+function downloadFile(content, filename, mimeType = "text/plain") {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+
+function tableToCSV(rows) {
+  const headers = ["image", "sex", "age", "ptx_gt", "eff_gt", "edema_gt", "sev_gt",
+    ...MODELS.flatMap(m => PROMPTS.flatMap(p => [`${m}_${p}_ptx`, `${m}_${p}_eff`, `${m}_${p}_edema`, `${m}_${p}_sev`, `${m}_${p}_total`]))
+  ];
+  const csvRows = rows.map(row => [
+    row.id, row.sex, row.age,
+    row.ground_truth.pneumothorax, row.ground_truth.pleural_effusion, row.ground_truth.pulmonary_edema, row.ground_truth.severity,
+    ...MODELS.flatMap(m => PROMPTS.flatMap(p => {
+      const ans = row.models[m][p];
+      return [ans.pneumothorax, ans.pleural_effusion, ans.pulmonary_edema, ans.severity, totalScore(ans, row.ground_truth)];
+    }))
+  ]);
+  return [headers, ...csvRows].map(r => r.join(",")).join("\n");
+}
 
 const scoreColor = (v) => v === 1 ? "#6ee7b7" : v >= 0.75 ? "#a3e0c8" : v >= 0.5 ? "#fde68a" : "#f87171";
 
@@ -615,6 +640,7 @@ function ModelLineChart({ model, prompt }) {
   const doAnimate = useRef(!SEEN[seenKey]);
   useEffect(() => { SEEN[seenKey] = true; }, []); // eslint-disable-line
   const [hover, setHover] = useState(null);
+  const touchTimerRef = useRef(null);
 
   const W = 560, H = 200;
   const ML = 54, MR = 20, MT = 16, MB = 44;
@@ -626,21 +652,42 @@ function ModelLineChart({ model, prompt }) {
   const yTicks = [0, 0.25, 0.5, 0.75, 1.0];
   const d = scores.map((s, i) => `${i === 0 ? "M" : "L"}${px(i).toFixed(1)},${py(s).toFixed(1)}`).join(" ");
 
-  const handleMove = (e) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const svgX = ((e.clientX - rect.left) / rect.width) * W;
-    if (svgX < ML || svgX > ML + inW) { setHover(null); return; }
+  /* shared: หาจุดที่ใกล้ที่สุดจาก clientX */
+  const findPoint = (clientX, rect) => {
+    const svgX = ((clientX - rect.left) / rect.width) * W;
+    if (svgX < ML || svgX > ML + inW) return null;
     let ni = 0, nd = Infinity;
     for (let i = 0; i < MOCK_DATA.length; i++) {
       const dist = Math.abs(px(i) - svgX);
       if (dist < nd) { nd = dist; ni = i; }
     }
-    setHover({ i: ni, x: px(ni), y: py(scores[ni]), s: scores[ni], id: MOCK_DATA[ni].id });
+    return {
+      i: ni,
+      svgX: px(ni), svgY: py(scores[ni]),
+      pctX: px(ni) / W, pctY: py(scores[ni]) / H,
+      s: scores[ni], id: MOCK_DATA[ni].id,
+    };
   };
 
-  const TW = 110, TH = 58;
-  const tx = hover ? (hover.x + 12 + TW > W - MR ? hover.x - 12 - TW : hover.x + 12) : 0;
-  const ty = hover ? Math.max(MT, Math.min(hover.y - TH / 2, MT + inH - TH)) : 0;
+  /* mouse */
+  const handleMove  = (e) => setHover(findPoint(e.clientX, e.currentTarget.getBoundingClientRect()));
+  const handleLeave = ()  => setHover(null);
+
+  /* touch — แสดง tooltip เมื่อแตะ/ลาก, ซ่อนหลัง 2.5s เมื่อยกนิ้ว */
+  const handleTouchStart = (e) => {
+    if (touchTimerRef.current) clearTimeout(touchTimerRef.current);
+    const touch = e.touches[0];
+    setHover(findPoint(touch.clientX, e.currentTarget.getBoundingClientRect()));
+  };
+  const handleTouchMove = (e) => {
+    const touch = e.touches[0];
+    setHover(findPoint(touch.clientX, e.currentTarget.getBoundingClientRect()));
+  };
+  const handleTouchEnd = () => {
+    touchTimerRef.current = setTimeout(() => setHover(null), 2500);
+  };
+
+  useEffect(() => () => { if (touchTimerRef.current) clearTimeout(touchTimerRef.current); }, []);
 
   return (
     <div className="model-line-chart">
@@ -648,31 +695,50 @@ function ModelLineChart({ model, prompt }) {
         <ModelIcon model={model} />
         {model}
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" className="chart-svg"
-        onMouseMove={handleMove} onMouseLeave={() => setHover(null)}
-        style={{ cursor: "crosshair" }}>
-        {yTicks.map(t => (
-          <g key={t}>
-            <line x1={ML} y1={py(t)} x2={ML + inW} y2={py(t)} stroke="rgba(255, 255, 255, 0.06)" strokeWidth={1} />
-            <text x={ML - 8} y={py(t) + 5} textAnchor="end" fontSize={13} fill="var(--ink-mute)">{t.toFixed(1)}</text>
-          </g>
-        ))}
-        <line x1={ML} y1={MT + inH} x2={ML + inW} y2={MT + inH} stroke="rgba(255,255,255,0.18)" strokeWidth={1} />
-        <AnimatedPath d={d} stroke={MODEL_COLORS[model].dot} strokeWidth={2} animate={doAnimate.current} />
+      <div style={{ position: "relative" }}>
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" className="chart-svg"
+          onMouseMove={handleMove} onMouseLeave={handleLeave}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          style={{ cursor: "crosshair", display: "block", touchAction: "pan-y" }}>
+          {yTicks.map(t => (
+            <g key={t}>
+              <line x1={ML} y1={py(t)} x2={ML + inW} y2={py(t)} stroke="rgba(255, 255, 255, 0.06)" strokeWidth={1} />
+              <text x={ML - 8} y={py(t) + 5} textAnchor="end" fontSize={13} fill="var(--ink-mute)">{t.toFixed(1)}</text>
+            </g>
+          ))}
+          <line x1={ML} y1={MT + inH} x2={ML + inW} y2={MT + inH} stroke="rgba(255,255,255,0.18)" strokeWidth={1} />
+          <AnimatedPath d={d} stroke={MODEL_COLORS[model].dot} strokeWidth={2} animate={doAnimate.current} />
+          {hover && (
+            <>
+              <line x1={hover.svgX} y1={MT} x2={hover.svgX} y2={MT + inH} stroke="rgba(255,255,255,0.18)" strokeWidth={1} strokeDasharray="3,3" />
+              <circle cx={hover.svgX} cy={hover.svgY} r={6} fill={MODEL_COLORS[model].dot} stroke="var(--bg)" strokeWidth={2} />
+            </>
+          )}
+          {MOCK_DATA.map((_, i) => {
+            if (i % 4 !== 0 && i !== MOCK_DATA.length - 1) return null;
+            return <text key={i} x={px(i)} y={H - MB + 18} textAnchor="middle" fontSize={12} fill="var(--ink-mute)">{i + 1}</text>;
+          })}
+        </svg>
         {hover && (
-          <>
-            <line x1={hover.x} y1={MT} x2={hover.x} y2={MT + inH} stroke="rgba(255,255,255,0.18)" strokeWidth={1} strokeDasharray="3,3" />
-            <circle cx={hover.x} cy={hover.y} r={5} fill={MODEL_COLORS[model].dot} stroke="var(--bg)" strokeWidth={2} />
-            <rect x={tx} y={ty} width={TW} height={TH} rx={3} fill="var(--paper)" stroke="var(--rule)" />
-            <text x={tx + TW / 2} y={ty + 19} textAnchor="middle" className="chart-tip-label">{hover.id}</text>
-            <text x={tx + TW / 2} y={ty + 39} textAnchor="middle" className="chart-tip-value" fill={MODEL_COLORS[model].dot}>{hover.s.toFixed(2)}</text>
-          </>
+          <div
+            className="chart-tip-html"
+            style={{
+              left: `${hover.pctX * 100}%`,
+              top: `${hover.pctY * 100}%`,
+              transform: hover.pctX > 0.65
+                ? "translate(calc(-100% - 10px), -50%)"
+                : "translate(10px, -50%)",
+            }}
+          >
+            <div className="chart-tip-html-id">{hover.id}</div>
+            <div className="chart-tip-html-val" style={{ color: MODEL_COLORS[model].dot }}>
+              {hover.s.toFixed(2)}
+            </div>
+          </div>
         )}
-        {MOCK_DATA.map((_, i) => {
-          if (i % 4 !== 0 && i !== MOCK_DATA.length - 1) return null;
-          return <text key={i} x={px(i)} y={H - MB + 18} textAnchor="middle" fontSize={12} fill="var(--ink-mute)">{i + 1}</text>;
-        })}
-      </svg>
+      </div>
     </div>
   );
 }
@@ -701,7 +767,7 @@ function SSCondBlock({ cond, index }) {
           <thead>
             <tr>
               <th>Model</th><th>Prompt</th>
-              <th>Sens</th><th>Spec</th><th>AUC<span className="th-sub">≥0.7</span></th><th>PPV</th><th>NPV</th><th>F1</th>
+              <th>Sens</th><th>Spec</th><th>BA<span className="th-sub">balanced acc</span></th><th>PPV</th><th>NPV</th><th>F1</th>
               <th>LR+<span className="th-sub">≥10 good</span></th>
               <th>LR-<span className="th-sub">≤0.1 good</span></th>
             </tr>
@@ -730,6 +796,7 @@ function SSCondBlock({ cond, index }) {
           </tbody>
         </table>
       </div>
+      <div className="stat-footnote" style={{ padding: "0.3rem 1.1rem 0.65rem" }}>BA = Balanced Accuracy = (Sens + Spec) ÷ 2 · single-point AUC estimate</div>
     </div>
   );
 }
@@ -1136,8 +1203,8 @@ function PromptDeltaSection() {
 /* ─── Cross-task comparison: classification vs severity grading ─── */
 function CrossTaskSection() {
   const [ref, inView] = useInView(0.05);
-  const [visible, setVisible] = useState(SEEN.deltaSection);
-  useEffect(() => { if (inView && !visible) { SEEN.deltaSection = true; setVisible(true); } }, [inView]); // eslint-disable-line
+  const [visible, setVisible] = useState(SEEN.crossTask);
+  useEffect(() => { if (inView && !visible) { SEEN.crossTask = true; setVisible(true); } }, [inView]); // eslint-disable-line
 
   const sc  = v => parseFloat(v) >= 0.7 ? "var(--ok)" : parseFloat(v) >= 0.5 ? "var(--warn)" : "var(--bad)";
   const scM = v => parseFloat(v) <= 0.5 ? "var(--ok)" : parseFloat(v) <= 1   ? "var(--warn)" : "var(--bad)";
@@ -1180,12 +1247,12 @@ function CrossTaskSection() {
 /* ─── Demographic subgroup analysis ─── */
 function DemographicSubgroupSection() {
   const [ref, inView] = useInView(0.05);
-  const [visible, setVisible] = useState(true);
-  useEffect(() => { if (inView && !visible) setVisible(true); }, [inView]); // eslint-disable-line
+  const [visible, setVisible] = useState(SEEN.demoSection);
+  useEffect(() => { if (inView && !visible) { SEEN.demoSection = true; setVisible(true); } }, [inView]); // eslint-disable-line
   const [prompt, setPrompt] = useState("std");
   const sc = v => v >= 0.7 ? "var(--ok)" : v >= 0.5 ? "var(--warn)" : "var(--bad)";
   const sexGroups = ["M", "F"];
-  const ageGroups = ["18–40", "41–60", "61+"];
+  const ageGroups = ["18-40", "41-60", "61+"];
   const rateCell = (g, mi) => {
     const rate = g.total > 0 ? g.correct / g.total : null;
     return (
@@ -1258,8 +1325,8 @@ function DemographicSubgroupSection() {
 /* ─── Severity scatter plot: predicted vs actual ─── */
 function SeverityScatterSection() {
   const [ref, inView] = useInView(0.05);
-  const [visible, setVisible] = useState(true);
-  useEffect(() => { if (inView && !visible) setVisible(true); }, [inView]); // eslint-disable-line
+  const [visible, setVisible] = useState(SEEN.scatterSection);
+  useEffect(() => { if (inView && !visible) { SEEN.scatterSection = true; setVisible(true); } }, [inView]); // eslint-disable-line
   const [prompt, setPrompt] = useState("std");
   const [activeModel, setActiveModel] = useState("GPT-4o");
 
@@ -1682,6 +1749,7 @@ function JsonFilesViewer({ files }) {
             <button className={mode === "code" ? "active" : ""} onClick={() => setMode("code")}>Code</button>
             <button className={mode === "tree" ? "active" : ""} onClick={() => setMode("tree")}>Tree</button>
           </div>
+          <button className="export-btn" onClick={() => downloadFile(f.code, f.name, "application/json")}>↓ JSON</button>
         </div>
         {mode === "code" ? (
           <pre className="jm-split-body">
@@ -1760,7 +1828,7 @@ function GroundTruthPage() {
               { label: "Source",       val: "NIH ChestX-ray14",                                          note: "Wang et al., 2017" },
               { label: "Total images", val: `${MOCK_DATA.length} (prototype)`,                          note: "target: 1,000 from 112,120" },
               { label: "Sex",          val: `${DEMO.malePct}% M · ${DEMO.femalePct}% F`,               note: "Male / Female" },
-              { label: "Age range",    val: `${DEMO.minAge}–${DEMO.maxAge} yrs`,                       note: `median ${DEMO.median} years` },
+              { label: "Age range",    val: `${DEMO.minAge}-${DEMO.maxAge} yrs`,                       note: `median ${DEMO.median} years` },
             ].map(({ label, val, note }) => (
               <div key={label} className="ds-card">
                 <span className="ds-card-label">{label}</span>
@@ -2124,9 +2192,9 @@ export default function App() {
   "CXR_0001": {
     "GPT-4o": {
       "std": {
-        "pneumothorax":     1.0,  // correct → 1
+        "pneumothorax":     1.0,  // correct = 1
         "pleural_effusion": 1.0,
-        "pulmonary_edema":  0.0,  // wrong → 0
+        "pulmonary_edema":  0.0,  // wrong = 0
         "severity":         0.75, // 1 - (|predicted - ground_truth| ÷ 4)
         "total":            0.71  // (avg of classification + severity) ÷ 2
       },
@@ -2171,8 +2239,9 @@ export default function App() {
             {[["all","All"],["wrong","Has errors"],["correct","All correct"]].map(([f,l]) => (
               <button key={f} onClick={() => setFilter(f)} className={`filter-btn${filter === f ? " active" : ""}`}>{l}</button>
             ))}
-            <span className="filter-note">[ "all correct" = every model scored 1 on all conditions ]</span>
+            <span className="filter-note">[ "all correct" = every model scored 1 on all conditions ] · <span style={{ opacity: 0.65 }}>■ boxes = STD conditions · hover for STD/CoT</span></span>
             <span className="filter-count">{filtered.length} images</span>
+            <button className="export-btn" onClick={() => downloadFile(tableToCSV(filtered), "cxr_benchmark.csv", "text/csv")}>↓ CSV</button>
           </div>
           <div className="table-scroll">
             <table>
@@ -2187,7 +2256,11 @@ export default function App() {
                 {filtered.map(row => (
                   <Fragment key={row.id}>
                     <tr
+                      tabIndex={0}
+                      role="button"
+                      aria-expanded={selected === row.id}
                       onClick={() => setSelected(selected === row.id ? null : row.id)}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelected(selected === row.id ? null : row.id); } }}
                       className={selected === row.id ? "selected" : ""}>
                       <td>
                         <div style={{ display:"flex", alignItems:"center", gap:6 }}>
@@ -2218,7 +2291,7 @@ export default function App() {
                                   <span
                                     key={c}
                                     className={`cond-box cond-box-${row.models[m].std[c]}`}
-                                    title={`${COND_SHORT[c]}: ${row.models[m].std[c]}`}
+                                    title={`${COND_SHORT[c]} - STD: ${row.models[m].std[c]} / CoT: ${row.models[m].cot[c]}`}
                                   />
                                 ))}
                               </div>
@@ -2245,7 +2318,10 @@ export default function App() {
                 <article
                   key={`mobile-${row.id}`}
                   className={`mobile-image-card${isOpen ? " selected" : ""}`}
+                  tabIndex={0}
+                  aria-expanded={isOpen}
                   onClick={() => setSelected(isOpen ? null : row.id)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelected(isOpen ? null : row.id); } }}
                 >
                   <div className="mobile-card-head">
                     <span className="img-id">{row.id}</span>
@@ -2280,7 +2356,7 @@ export default function App() {
                               <span
                                 key={c}
                                 className={`cond-box cond-box-${row.models[m].std[c]}`}
-                                title={`${COND_SHORT[c]}: ${row.models[m].std[c]}`}
+                                title={`${COND_SHORT[c]} - STD: ${row.models[m].std[c]} / CoT: ${row.models[m].cot[c]}`}
                               />
                             ))}
                           </div>
