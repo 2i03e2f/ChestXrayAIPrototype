@@ -1,0 +1,1428 @@
+{
+  "source": "NIH ChestX-ray14",
+  "citation": "Wang X, et al. ChestX-ray8. CVPR 2017.",
+  "severity_definition": "0 findings=1, effusion only=2, PTX/edema only=3, 2 conditions=4, all 3=5",
+  "n": 20,
+  "images": [
+    {
+      "id": "CXR_0001",
+      "image": "00000631_002.png",
+      "source": "NIH ChestX-ray14",
+      "sex": "M",
+      "age": 25,
+      "ground_truth": {
+        "pneumothorax": "present",
+        "pleural_effusion": "absent",
+        "pulmonary_edema": "absent",
+        "severity": 3
+      },
+      "models": {
+        "Claude": {
+          "std": {
+            "pneumothorax": "present",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 3
+          },
+          "cot": {
+            "pneumothorax": "present",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 3
+          }
+        },
+        "Gemini": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          }
+        },
+        "Grok": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          }
+        },
+        "ChatGPT": {
+          "std": {
+            "pneumothorax": "present",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 3
+          },
+          "cot": {
+            "pneumothorax": "present",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 3
+          }
+        }
+      }
+    },
+    {
+      "id": "CXR_0002",
+      "image": "00000608_003.png",
+      "source": "NIH ChestX-ray14",
+      "sex": "F",
+      "age": 79,
+      "ground_truth": {
+        "pneumothorax": "present",
+        "pleural_effusion": "absent",
+        "pulmonary_edema": "absent",
+        "severity": 3
+      },
+      "models": {
+        "Claude": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          }
+        },
+        "Gemini": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          }
+        },
+        "Grok": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          }
+        },
+        "ChatGPT": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          }
+        }
+      }
+    },
+    {
+      "id": "CXR_0003",
+      "image": "00000368_003.png",
+      "source": "NIH ChestX-ray14",
+      "sex": "M",
+      "age": 36,
+      "ground_truth": {
+        "pneumothorax": "present",
+        "pleural_effusion": "absent",
+        "pulmonary_edema": "absent",
+        "severity": 3
+      },
+      "models": {
+        "Claude": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          }
+        },
+        "Gemini": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          }
+        },
+        "Grok": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          }
+        },
+        "ChatGPT": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "absent",
+            "severity": 2
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "absent",
+            "severity": 2
+          }
+        }
+      }
+    },
+    {
+      "id": "CXR_0004",
+      "image": "00001286_005.png",
+      "source": "NIH ChestX-ray14",
+      "sex": "M",
+      "age": 26,
+      "ground_truth": {
+        "pneumothorax": "present",
+        "pleural_effusion": "absent",
+        "pulmonary_edema": "absent",
+        "severity": 3
+      },
+      "models": {
+        "Claude": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          }
+        },
+        "Gemini": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          }
+        },
+        "Grok": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          }
+        },
+        "ChatGPT": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          }
+        }
+      }
+    },
+    {
+      "id": "CXR_0005",
+      "image": "00000360_005.png",
+      "source": "NIH ChestX-ray14",
+      "sex": "M",
+      "age": 45,
+      "ground_truth": {
+        "pneumothorax": "present",
+        "pleural_effusion": "absent",
+        "pulmonary_edema": "absent",
+        "severity": 3
+      },
+      "models": {
+        "Claude": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          }
+        },
+        "Gemini": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "absent",
+            "severity": 2
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "absent",
+            "severity": 2
+          }
+        },
+        "Grok": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "absent",
+            "severity": 2
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "absent",
+            "severity": 2
+          }
+        },
+        "ChatGPT": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "absent",
+            "severity": 2
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "absent",
+            "severity": 2
+          }
+        }
+      }
+    },
+    {
+      "id": "CXR_0006",
+      "image": "00000127_002.png",
+      "source": "NIH ChestX-ray14",
+      "sex": "F",
+      "age": 56,
+      "ground_truth": {
+        "pneumothorax": "absent",
+        "pleural_effusion": "present",
+        "pulmonary_edema": "absent",
+        "severity": 2
+      },
+      "models": {
+        "Claude": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          }
+        },
+        "Gemini": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          }
+        },
+        "Grok": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          }
+        },
+        "ChatGPT": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "CXR_0007",
+      "image": "00000138_005.png",
+      "source": "NIH ChestX-ray14",
+      "sex": "F",
+      "age": 66,
+      "ground_truth": {
+        "pneumothorax": "absent",
+        "pleural_effusion": "present",
+        "pulmonary_edema": "absent",
+        "severity": 2
+      },
+      "models": {
+        "Claude": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          }
+        },
+        "Gemini": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "absent",
+            "severity": 2
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "absent",
+            "severity": 2
+          }
+        },
+        "Grok": {
+          "std": {
+            "pneumothorax": "present",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 3
+          },
+          "cot": {
+            "pneumothorax": "present",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 5
+          }
+        },
+        "ChatGPT": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "absent",
+            "severity": 2
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "absent",
+            "severity": 2
+          }
+        }
+      }
+    },
+    {
+      "id": "CXR_0008",
+      "image": "00000084_000.png",
+      "source": "NIH ChestX-ray14",
+      "sex": "F",
+      "age": 57,
+      "ground_truth": {
+        "pneumothorax": "absent",
+        "pleural_effusion": "present",
+        "pulmonary_edema": "absent",
+        "severity": 2
+      },
+      "models": {
+        "Claude": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          }
+        },
+        "Gemini": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          }
+        },
+        "Grok": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          }
+        },
+        "ChatGPT": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          }
+        }
+      }
+    },
+    {
+      "id": "CXR_0009",
+      "image": "00000882_002.png",
+      "source": "NIH ChestX-ray14",
+      "sex": "F",
+      "age": 60,
+      "ground_truth": {
+        "pneumothorax": "absent",
+        "pleural_effusion": "present",
+        "pulmonary_edema": "absent",
+        "severity": 2
+      },
+      "models": {
+        "Claude": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          }
+        },
+        "Gemini": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          }
+        },
+        "Grok": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          }
+        },
+        "ChatGPT": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          }
+        }
+      }
+    },
+    {
+      "id": "CXR_0010",
+      "image": "00000044_000.png",
+      "source": "NIH ChestX-ray14",
+      "sex": "M",
+      "age": 78,
+      "ground_truth": {
+        "pneumothorax": "absent",
+        "pleural_effusion": "present",
+        "pulmonary_edema": "absent",
+        "severity": 2
+      },
+      "models": {
+        "Claude": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          }
+        },
+        "Gemini": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          }
+        },
+        "Grok": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          }
+        },
+        "ChatGPT": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "absent",
+            "severity": 2
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "absent",
+            "severity": 2
+          }
+        }
+      }
+    },
+    {
+      "id": "CXR_0011",
+      "image": "00000678_000.png",
+      "source": "NIH ChestX-ray14",
+      "sex": "F",
+      "age": 30,
+      "ground_truth": {
+        "pneumothorax": "absent",
+        "pleural_effusion": "absent",
+        "pulmonary_edema": "present",
+        "severity": 3
+      },
+      "models": {
+        "Claude": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          }
+        },
+        "Gemini": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          }
+        },
+        "Grok": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          }
+        },
+        "ChatGPT": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          }
+        }
+      }
+    },
+    {
+      "id": "CXR_0012",
+      "image": "00001152_004.png",
+      "source": "NIH ChestX-ray14",
+      "sex": "F",
+      "age": 32,
+      "ground_truth": {
+        "pneumothorax": "absent",
+        "pleural_effusion": "absent",
+        "pulmonary_edema": "present",
+        "severity": 3
+      },
+      "models": {
+        "Claude": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          }
+        },
+        "Gemini": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          }
+        },
+        "Grok": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          }
+        },
+        "ChatGPT": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          }
+        }
+      }
+    },
+    {
+      "id": "CXR_0013",
+      "image": "00000938_002.png",
+      "source": "NIH ChestX-ray14",
+      "sex": "F",
+      "age": 58,
+      "ground_truth": {
+        "pneumothorax": "absent",
+        "pleural_effusion": "absent",
+        "pulmonary_edema": "present",
+        "severity": 3
+      },
+      "models": {
+        "Claude": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          }
+        },
+        "Gemini": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          }
+        },
+        "Grok": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          }
+        },
+        "ChatGPT": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          }
+        }
+      }
+    },
+    {
+      "id": "CXR_0014",
+      "image": "00001106_000.png",
+      "source": "NIH ChestX-ray14",
+      "sex": "F",
+      "age": 68,
+      "ground_truth": {
+        "pneumothorax": "absent",
+        "pleural_effusion": "absent",
+        "pulmonary_edema": "present",
+        "severity": 3
+      },
+      "models": {
+        "Claude": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          }
+        },
+        "Gemini": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          }
+        },
+        "Grok": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          }
+        },
+        "ChatGPT": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "CXR_0015",
+      "image": "00001200_012.png",
+      "source": "NIH ChestX-ray14",
+      "sex": "M",
+      "age": 24,
+      "ground_truth": {
+        "pneumothorax": "absent",
+        "pleural_effusion": "present",
+        "pulmonary_edema": "present",
+        "severity": 4
+      },
+      "models": {
+        "Claude": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          }
+        },
+        "Gemini": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          }
+        },
+        "Grok": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          }
+        },
+        "ChatGPT": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          }
+        }
+      }
+    },
+    {
+      "id": "CXR_0016",
+      "image": "00001202_002.png",
+      "source": "NIH ChestX-ray14",
+      "sex": "F",
+      "age": 48,
+      "ground_truth": {
+        "pneumothorax": "present",
+        "pleural_effusion": "present",
+        "pulmonary_edema": "absent",
+        "severity": 4
+      },
+      "models": {
+        "Claude": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          }
+        },
+        "Gemini": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          }
+        },
+        "Grok": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          }
+        },
+        "ChatGPT": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "CXR_0017",
+      "image": "00000877_030.png",
+      "source": "NIH ChestX-ray14",
+      "sex": "M",
+      "age": 38,
+      "ground_truth": {
+        "pneumothorax": "absent",
+        "pleural_effusion": "present",
+        "pulmonary_edema": "present",
+        "severity": 4
+      },
+      "models": {
+        "Claude": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          }
+        },
+        "Gemini": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          }
+        },
+        "Grok": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          }
+        },
+        "ChatGPT": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "CXR_0018",
+      "image": "00000061_012.png",
+      "source": "NIH ChestX-ray14",
+      "sex": "M",
+      "age": 77,
+      "ground_truth": {
+        "pneumothorax": "absent",
+        "pleural_effusion": "present",
+        "pulmonary_edema": "present",
+        "severity": 4
+      },
+      "models": {
+        "Claude": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          }
+        },
+        "Gemini": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          }
+        },
+        "Grok": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "present",
+            "severity": 3
+          }
+        },
+        "ChatGPT": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          }
+        }
+      }
+    },
+    {
+      "id": "CXR_0019",
+      "image": "00001057_000.png",
+      "source": "NIH ChestX-ray14",
+      "sex": "M",
+      "age": 14,
+      "ground_truth": {
+        "pneumothorax": "absent",
+        "pleural_effusion": "absent",
+        "pulmonary_edema": "absent",
+        "severity": 1
+      },
+      "models": {
+        "Claude": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "present",
+            "severity": 4
+          }
+        },
+        "Gemini": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          }
+        },
+        "Grok": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "present",
+            "pulmonary_edema": "absent",
+            "severity": 2
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          }
+        },
+        "ChatGPT": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "CXR_0020",
+      "image": "00000842_000.png",
+      "source": "NIH ChestX-ray14",
+      "sex": "M",
+      "age": 38,
+      "ground_truth": {
+        "pneumothorax": "absent",
+        "pleural_effusion": "absent",
+        "pulmonary_edema": "absent",
+        "severity": 1
+      },
+      "models": {
+        "Claude": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          }
+        },
+        "Gemini": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          }
+        },
+        "Grok": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          }
+        },
+        "ChatGPT": {
+          "std": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          },
+          "cot": {
+            "pneumothorax": "absent",
+            "pleural_effusion": "absent",
+            "pulmonary_edema": "absent",
+            "severity": 1
+          }
+        }
+      }
+    }
+  ]
+}

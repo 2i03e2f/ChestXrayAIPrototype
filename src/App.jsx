@@ -5,6 +5,7 @@ import gpt4oIcon from "./assets/models/gpt4o.svg";
 import claudeIcon from "./assets/models/claude.svg";
 import geminiIcon from "./assets/models/gemini.svg";
 import grokIcon from "./assets/models/grok.svg";
+import rawData from "./data/dataset.json";
 
 /* Tracks which tabs have been viewed in this session - animations only fire on
    the FIRST visit per tab per page load. Refresh resets back to false. */
@@ -133,12 +134,12 @@ function JsonFileBlock({ filename, desc, code }) {
 }
 
 const MODEL_ICONS = {
-  "GPT-4o": gpt4oIcon,
+  "ChatGPT": gpt4oIcon,
   "Claude": claudeIcon,
   "Gemini": geminiIcon,
   "Grok":   grokIcon,
 };
-const INVERT_ON_DARK = new Set(["GPT-4o", "Grok"]);
+const INVERT_ON_DARK = new Set(["ChatGPT", "Grok"]);
 
 function ModelIcon({ model, size = 14 }) {
   const src = MODEL_ICONS[model];
@@ -148,24 +149,24 @@ function ModelIcon({ model, size = 14 }) {
 }
 
 /* ─── Constants ─── */
-const MODELS = ["GPT-4o", "Claude", "Gemini", "Grok"];
+const MODELS = ["ChatGPT", "Claude", "Gemini", "Grok"];
 const CONDS = ["pneumothorax", "pleural_effusion", "pulmonary_edema"];
 const PROMPTS = ["std", "cot"];
 const COND_LABELS = { pneumothorax: "Pneumothorax", pleural_effusion: "Pleural Effusion", pulmonary_edema: "Pulmonary Edema" };
 const COND_SHORT = { pneumothorax: "PTX", pleural_effusion: "EFF", pulmonary_edema: "EDEMA" };
 const PROMPT_LABELS = { std: "Standard", cot: "Chain of Thought" };
 const PROMPT_SHORT = { std: "STD", cot: "CoT" };
-const MODEL_ERROR_RATES = {
-  "GPT-4o": { std: 0.20, cot: 0.15 },
-  "Claude":  { std: 0.28, cot: 0.18 },
-  "Gemini":  { std: 0.35, cot: 0.25 },
-  "Grok":    { std: 0.45, cot: 0.35 },
-};
 const MODEL_COLORS = {
-  "GPT-4o": { dot: "#10a37f" },
+  "ChatGPT": { dot: "#10a37f" },
   "Claude":  { dot: "#d97706" },
   "Gemini":  { dot: "#4285f4" },
   "Grok":    { dot: "#8b5cf6" },
+};
+const MODEL_VERSIONS = {
+  "ChatGPT": "gpt-5.5",
+  "Claude":  "claude-opus-4-7",
+  "Gemini":  "gemini-3.5-flash",
+  "Grok":    "grok-4-mini",
 };
 const TABS = [
   ["dashboard", "Dashboard"],
@@ -198,32 +199,8 @@ function totalScore(promptObj, gt) {
   return parseFloat(((classAvg + ss) / 2).toFixed(2));
 }
 
-/* ─── Mock data ─── */
-const MOCK_DATA = Array.from({ length: 20 }, (_, i) => {
-  const gt = {
-    pneumothorax: Math.random() > 0.5 ? "present" : "absent",
-    pleural_effusion: Math.random() > 0.6 ? "present" : "absent",
-    pulmonary_edema: Math.random() > 0.7 ? "present" : "absent",
-    severity: Math.floor(Math.random() * 5) + 1,
-  };
-  const flip = (v, rate = 0.25) => Math.random() > rate ? v : (v === "present" ? "absent" : "present");
-  const genPrompt = (errorRate) => ({
-    pneumothorax: flip(gt.pneumothorax, errorRate),
-    pleural_effusion: flip(gt.pleural_effusion, errorRate),
-    pulmonary_edema: flip(gt.pulmonary_edema, errorRate),
-    severity: Math.max(1, Math.min(5, gt.severity + (Math.random() > 0.5 ? 1 : -1) * Math.floor(Math.random() * 2))),
-  });
-  const models = {};
-  MODELS.forEach(m => {
-    models[m] = {
-      std: genPrompt(MODEL_ERROR_RATES[m].std),
-      cot: genPrompt(MODEL_ERROR_RATES[m].cot),
-    };
-  });
-  const sex = Math.random() > 0.5 ? "M" : "F";
-  const age = Math.floor(Math.random() * 73) + 18;
-  return { id: `CXR_${String(i + 1).padStart(4, "0")}`, ground_truth: gt, models, sex, age };
-});
+/* ─── Real data ─── */
+const MOCK_DATA = rawData.images;
 
 /* ─── Pre-computed aggregates ─── */
 function avgTotal(model, prompt) {
@@ -489,7 +466,10 @@ function BreakCard({ model, modelData, gt }) {
       <div className="break-top">
         <div className="break-top-left">
           <ModelIcon model={model} />
-          <span className="break-name">{model}</span>
+          <div className="model-name-wrap">
+            <span className="break-name">{model}</span>
+            <span className="model-version-sub">{MODEL_VERSIONS[model]}</span>
+          </div>
           <PromptToggle value={prompt} onChange={setPrompt} />
         </div>
         <span className="total-badge" style={{ color: scoreColor(total) }}>{total}</span>
@@ -518,9 +498,32 @@ function BreakCard({ model, modelData, gt }) {
   );
 }
 
+/* ─── Image lightbox ─── */
+function Lightbox({ src, alt, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = ""; };
+  }, [onClose]);
+  return createPortal(
+    <div className="lightbox-overlay" onClick={onClose}>
+      <button className="lightbox-close" onClick={onClose}>✕</button>
+      <img
+        src={src}
+        alt={alt}
+        className="lightbox-img"
+        onClick={e => e.stopPropagation()}
+      />
+    </div>,
+    document.body
+  );
+}
+
 /* ─── Detail panel ─── */
 function DetailContent({ row }) {
   const [detailTab, setDetailTab] = useState("breakdown");
+  const [lightbox, setLightbox] = useState(false);
   const gt = row.ground_truth;
 
   return (
@@ -538,11 +541,53 @@ function DetailContent({ row }) {
           </div>
 
           {detailTab === "breakdown" && (
-            <div className="break-grid">
-              {MODELS.map(m => (
-                <BreakCard key={m} model={m} modelData={row.models[m]} gt={gt} />
-              ))}
-            </div>
+            <>
+              <div className="detail-img-row">
+                <img
+                  src={`${import.meta.env.BASE_URL}images/${row.image}`}
+                  alt={row.id}
+                  className="xray-img"
+                  onClick={() => setLightbox(true)}
+                />
+                {lightbox && (
+                  <Lightbox
+                    src={`${import.meta.env.BASE_URL}images/${row.image}`}
+                    alt={row.id}
+                    onClose={() => setLightbox(false)}
+                  />
+                )}
+                <div className="detail-img-meta">
+                  <div className="dim-title">Ground truth</div>
+                  {CONDS.map(c => (
+                    <div key={c} className="dim-row">
+                      <span className="dim-label">{COND_LABELS[c]}</span>
+                      {pill(gt[c])}
+                    </div>
+                  ))}
+                  <div className="dim-row">
+                    <span className="dim-label">Severity</span>
+                    <span className="sev-chip">{gt.severity}/5</span>
+                  </div>
+                  <div className="dim-row" style={{ marginTop: 8, borderTop: "1px solid var(--rule)", paddingTop: 8 }}>
+                    <span className="dim-label">Sex</span>
+                    <span className="dim-val">{row.sex}</span>
+                  </div>
+                  <div className="dim-row">
+                    <span className="dim-label">Age</span>
+                    <span className="dim-val">{row.age} yrs</span>
+                  </div>
+                  <div className="dim-row">
+                    <span className="dim-label">File</span>
+                    <span className="dim-val dim-file">{row.image}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="break-grid">
+                {MODELS.map(m => (
+                  <BreakCard key={m} model={m} modelData={row.models[m]} gt={gt} />
+                ))}
+              </div>
+            </>
           )}
 
           {detailTab === "calculation" && (
@@ -673,7 +718,7 @@ function ModelLineChart({ model, prompt }) {
   const handleMove  = (e) => setHover(findPoint(e.clientX, e.currentTarget.getBoundingClientRect()));
   const handleLeave = ()  => setHover(null);
 
-  /* touch — แสดง tooltip เมื่อแตะ/ลาก, ซ่อนหลัง 2.5s เมื่อยกนิ้ว */
+  /* touch - แสดง tooltip เมื่อแตะ/ลาก, ซ่อนหลัง 2.5s เมื่อยกนิ้ว */
   const handleTouchStart = (e) => {
     if (touchTimerRef.current) clearTimeout(touchTimerRef.current);
     const touch = e.touches[0];
@@ -693,7 +738,8 @@ function ModelLineChart({ model, prompt }) {
     <div className="model-line-chart">
       <div className="model-line-title">
         <ModelIcon model={model} />
-        {model}
+        <span>{model}</span>
+        <span className="model-version-sub">{MODEL_VERSIONS[model]}</span>
       </div>
       <div style={{ position: "relative" }}>
         <svg viewBox={`0 0 ${W} ${H}`} width="100%" className="chart-svg"
@@ -1328,7 +1374,7 @@ function SeverityScatterSection() {
   const [visible, setVisible] = useState(SEEN.scatterSection);
   useEffect(() => { if (inView && !visible) { SEEN.scatterSection = true; setVisible(true); } }, [inView]); // eslint-disable-line
   const [prompt, setPrompt] = useState("std");
-  const [activeModel, setActiveModel] = useState("GPT-4o");
+  const [activeModel, setActiveModel] = useState("ChatGPT");
 
   const W = 580, H = 210;
   const ML = 82, MR = 82, MT = 26, MB = 50;
@@ -1610,6 +1656,7 @@ function ModelAnswerTable({ model, prompt }) {
       <div className="data-table-title">
         <ModelIcon model={model} />
         <span>{model}</span>
+        <span className="model-version-sub">{MODEL_VERSIONS[model]}</span>
         <span className="prompt-chip">{PROMPT_SHORT[prompt]}</span>
       </div>
       <div className="ground-table-scroll">
@@ -1783,6 +1830,7 @@ function GroundTruthPage() {
   const groundTruthJson = JSON.stringify(groundTruthData(), null, 2);
   const rawResponsesJson = JSON.stringify(rawResponsesData(), null, 2);
   const scoresJson = JSON.stringify(scoresData(), null, 2);
+  const datasetJson = JSON.stringify(rawData, null, 2);
 
   return (
     <div className="page-wrap ground-wrap">
@@ -1826,7 +1874,7 @@ function GroundTruthPage() {
           <div className="dataset-grid">
             {[
               { label: "Source",       val: "NIH ChestX-ray14",                                          note: "Wang et al., 2017" },
-              { label: "Total images", val: `${MOCK_DATA.length} (prototype)`,                          note: "target: 1,000 from 112,120" },
+              { label: "Total images", val: `${MOCK_DATA.length}`,                                      note: "from NIH ChestX-ray14 (112,120 total)" },
               { label: "Sex",          val: `${DEMO.malePct}% M · ${DEMO.femalePct}% F`,               note: "Male / Female" },
               { label: "Age range",    val: `${DEMO.minAge}-${DEMO.maxAge} yrs`,                       note: `median ${DEMO.median} years` },
             ].map(({ label, val, note }) => (
@@ -1840,10 +1888,10 @@ function GroundTruthPage() {
           <div className="section-sublabel">Models evaluated</div>
           <div className="model-ver-grid">
             {[
-              { name: "GPT-4o",  version: "gpt-4o-2024-11-20",        temp: 0 },
-              { name: "Claude",  version: "claude-sonnet-4-20250514",  temp: 0 },
-              { name: "Gemini",  version: "gemini-1.5-pro-002",        temp: 0 },
-              { name: "Grok",    version: "grok-2-vision-1212",        temp: 0 },
+              { name: "ChatGPT",  version: "gpt-5.5",            temp: 0 },
+              { name: "Claude",  version: "claude-opus-4-7",   temp: 0 },
+              { name: "Gemini",  version: "gemini-3.5-flash",   temp: 0 },
+              { name: "Grok",    version: "grok-4-mini",        temp: 0 },
             ].map(({ name, version, temp }) => (
               <div key={name} className="model-ver-card">
                 <ModelIcon model={name} size={14}/>
@@ -1879,32 +1927,48 @@ function GroundTruthPage() {
             {[
               {
                 key: "std", label: "Standard prompt", short: "STD",
-                text: `Does this chest X-ray show any of the following findings? For each condition respond with "present" or "absent". Also rate the overall severity from 1 (minimal/incidental) to 5 (critical/life-threatening).
+                text: `You are a radiologist. Analyze this chest X-ray image and evaluate for the following three conditions.
 
-Respond ONLY in this exact JSON format - no explanation, no preamble:
+Respond in JSON format only - no explanation, no extra text.
+
 {
-  "pneumothorax":     "present" | "absent",
-  "pleural_effusion": "present" | "absent",
-  "pulmonary_edema":  "present" | "absent",
-  "severity": 1-5
-}`,
+  "pneumothorax": "present" or "absent",
+  "pleural_effusion": "present" or "absent",
+  "pulmonary_edema": "present" or "absent",
+  "severity": <integer 1 to 5>
+}
+
+Severity scale:
+1 = No significant findings
+2 = Pleural effusion only (mild)
+3 = Pneumothorax only OR pulmonary edema only (moderate)
+4 = Any two of the three conditions present
+5 = All three conditions present`,
               },
               {
                 key: "cot", label: "Chain-of-Thought prompt", short: "CoT",
-                text: `Think step by step. Analyze this chest X-ray carefully before giving your final answer.
+                text: `You are a radiologist. Analyze this chest X-ray image step by step.
 
-Step 1 - Image quality & overview: describe the projection, rotation, and overall quality.
-Step 2 - Pneumothorax: look for a pleural line, absent lung markings in the periphery, or tracheal deviation.
-Step 3 - Pleural effusion: look for blunting of the costophrenic angles, meniscus sign, or hemithorax opacification.
-Step 4 - Pulmonary edema: look for increased vascular markings, perihilar haze, Kerley B lines, or bat-wing pattern.
-Step 5 - Severity: considering all findings, rate from 1 (minimal/incidental) to 5 (critical/life-threatening).
+Step 1 - Pneumothorax: Look for absent lung markings, visible pleural line, collapsed lung, or mediastinal shift. Is pneumothorax present or absent?
 
-After your reasoning, provide your final answer ONLY in this JSON format:
+Step 2 - Pleural Effusion: Look for blunting of costophrenic angles, meniscus sign, or opacification at lung bases. Is pleural effusion present or absent?
+
+Step 3 - Pulmonary Edema: Look for bilateral perihilar haziness, Kerley B lines, airspace opacification, or cardiomegaly. Is pulmonary edema present or absent?
+
+Step 4 - Severity: Based on your findings above, assign a severity score:
+1 = No significant findings
+2 = Pleural effusion only (mild)
+3 = Pneumothorax only OR pulmonary edema only (moderate)
+4 = Any two of the three conditions present
+5 = All three conditions present
+
+Provide your final answer in this JSON format:
 {
-  "pneumothorax":     "present" | "absent",
-  "pleural_effusion": "present" | "absent",
-  "pulmonary_edema":  "present" | "absent",
-  "severity": 1-5
+  "reasoning": "<one sentence summarizing key findings>",
+  "pneumothorax": "present" or "absent",
+  "pleural_effusion": "present" or "absent",
+  "pulmonary_edema": "present" or "absent",
+  "severity": <integer 1 to 5>
 }`,
               },
             ].map(({ key, label, short, text }) => (
@@ -1922,6 +1986,7 @@ After your reasoning, provide your final answer ONLY in this JSON format:
         <div className="ground-json">
           <div className="section-label">JSON data</div>
           <JsonFilesViewer files={[
+            { name: "dataset.json",       desc: "Complete raw dataset - ground truth + all model responses",  code: datasetJson,      data: rawData },
             { name: "ground_truth.json",  desc: "Ground truth data used by the image table",                  code: groundTruthJson,  data: groundTruthData() },
             { name: "raw_responses.json", desc: "All model responses grouped by image, model, and prompt",    code: rawResponsesJson, data: rawResponsesData() },
             { name: "scores.json",        desc: "Per-condition, severity, and total scores",                  code: scoresJson,       data: scoresData() },
@@ -1988,7 +2053,10 @@ export default function App() {
               <div key={m} className={`score-card${cardsVisible ? " card-visible" : ""}`} style={{ "--card-delay": `${mi * 0.1}s` }}>
                 <div className="score-top">
                   <ModelIcon model={m} />
-                  <span className="model-name">{m}</span>
+                  <div className="model-name-wrap">
+                    <span className="model-name">{m}</span>
+                    <span className="model-version-sub">{MODEL_VERSIONS[m]}</span>
+                  </div>
                   {m === BEST && <span className="winner-badge">best</span>}
                 </div>
 
@@ -2149,17 +2217,17 @@ export default function App() {
     "pulmonary_edema":  "absent",
     "severity": 3,                  // 1-5
     "sex": "M",                     // M | F
-    "age": 54                       // years
+    "age": 25                       // years
   },
   "CXR_0002": {
-    "pneumothorax":     "absent",
-    "pleural_effusion": "present",
+    "pneumothorax":     "present",
+    "pleural_effusion": "absent",
     "pulmonary_edema":  "absent",
-    "severity": 2,
+    "severity": 3,
     "sex": "F",
-    "age": 37
+    "age": 79
   }
-  // ... 1,000 images
+  // ... 20 images
 }`}
             />
             <JsonFileBlock
@@ -2167,7 +2235,7 @@ export default function App() {
               desc="Raw model answers grouped by prompt type (std / cot)"
               code={`{
   "CXR_0001": {
-    "GPT-4o": {
+    "ChatGPT": {
       "std": {  // standard prompt
         "pneumothorax":     "present",  // present | absent
         "pleural_effusion": "absent",
@@ -2190,7 +2258,7 @@ export default function App() {
               desc="Computed scores"
               code={`{
   "CXR_0001": {
-    "GPT-4o": {
+    "ChatGPT": {
       "std": {
         "pneumothorax":     1.0,  // correct = 1
         "pleural_effusion": 1.0,
@@ -2213,19 +2281,19 @@ export default function App() {
               filename="metadata.json"
               desc="Experiment metadata and run configuration"
               code={`{
-  "experiment_date": "2025-05-22",  // experiment date
+  "experiment_date": "2026-05-30",  // experiment date
   "dataset": "NIH ChestX-ray14",    // dataset used
-  "total_images": 1000,             // total image count
-  "runs_per_image": 5,              // inference runs per image
+  "total_images": 20,               // total image count
+  "runs_per_image": 1,              // inference runs per image
   "models": {                       // model details
-    "GPT-4o":  { "version": "gpt-4o-2024-11-20",        "temp": 0 },
-    "Claude":  { "version": "claude-sonnet-4-20250514",  "temp": 0 },
-    "Gemini":  { "version": "gemini-1.5-pro-002",        "temp": 0 },
-    "Grok":    { "version": "grok-2-vision-1212",        "temp": 0 }
+    "ChatGPT": { "version": "gpt-5.5",            "temp": 0 },
+    "Claude":  { "version": "claude-opus-4-7",    "temp": 0 },
+    "Gemini":  { "version": "gemini-3.5-flash",   "temp": 0 },
+    "Grok":    { "version": "grok-4-mini",        "temp": 0 }
   },
   "prompts": {
-    "std": "Does this chest X-ray show the following...",        // standard prompt
-    "cot": "Think step by step. First describe what you see..."  // chain-of-thought prompt
+    "std": "You are a radiologist. Analyze this chest X-ray...",        // standard prompt
+    "cot": "You are a radiologist. Analyze this chest X-ray step by step..."  // chain-of-thought prompt
   }
 }`}
             />
