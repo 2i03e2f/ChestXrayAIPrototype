@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, Fragment } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, Fragment } from "react";
 import { createPortal } from "react-dom";
 import "./App.css";
 import gpt4oIcon from "./assets/models/gpt4o.svg";
@@ -15,7 +15,7 @@ const SEEN = { dashboard: false, graphs: false, stdCharts: false, cotCharts: fal
 function useCountUp(target, duration = 950, delay = 0, run = true) {
   const n = parseFloat(target);
   const shouldRun = useRef(run);
-  const [val, setVal] = useState(shouldRun.current ? 0 : n);
+  const [val, setVal] = useState(run ? 0 : n);
   useEffect(() => {
     if (!shouldRun.current) return;
     let raf, timer;
@@ -84,7 +84,7 @@ function highlightJson(code) {
       i = j + 1;
       continue;
     }
-    const isNeg = code[i] === '-' && i + 1 < code.length && /[0-9]/.test(code[i + 1]) && (i === 0 || /[\s,:\[]/.test(code[i - 1]));
+    const isNeg = code[i] === '-' && i + 1 < code.length && /[0-9]/.test(code[i + 1]) && (i === 0 || /\s|,|:|\[/.test(code[i - 1]));
     if (isNeg || (/[0-9]/.test(code[i]) && (i === 0 || !/[a-zA-Z_]/.test(code[i - 1])))) {
       let j = i;
       if (code[j] === '-') j++;
@@ -99,7 +99,7 @@ function highlightJson(code) {
       i += bMatch[0].length;
       continue;
     }
-    if (/[{}\[\],:]/.test(code[i])) {
+    if ("{}[],:".includes(code[i])) {
       tokens.push({ type: "punct", text: code[i] });
       i++;
       continue;
@@ -182,6 +182,8 @@ const TAB_HASH = {
 };
 const HASH_TAB = Object.fromEntries(Object.entries(TAB_HASH).map(([key, hash]) => [hash, key]));
 const tabFromHash = () => HASH_TAB[window.location.hash] || "dashboard";
+const tabId = (tabName) => `tab-${tabName}`;
+const tabPanelId = (tabName) => `panel-${tabName}`;
 
 /* ─── Scoring ─── */
 function classScore(pred, gt) {
@@ -682,8 +684,8 @@ function AnimatedPath({ d, stroke, strokeWidth = 1.8, opacity = 1, delay = 0, an
 /* ─── Per-model line chart with hover tooltip ─── */
 function ModelLineChart({ model, prompt }) {
   const seenKey = prompt === "std" ? "stdCharts" : "cotCharts";
-  const doAnimate = useRef(!SEEN[seenKey]);
-  useEffect(() => { SEEN[seenKey] = true; }, []); // eslint-disable-line
+  const [shouldAnimateChart] = useState(() => !SEEN[seenKey]);
+  useEffect(() => { SEEN[seenKey] = true; }, [seenKey]);
   const [hover, setHover] = useState(null);
   const touchTimerRef = useRef(null);
 
@@ -755,7 +757,7 @@ function ModelLineChart({ model, prompt }) {
             </g>
           ))}
           <line x1={ML} y1={MT + inH} x2={ML + inW} y2={MT + inH} stroke="rgba(255,255,255,0.18)" strokeWidth={1} />
-          <AnimatedPath d={d} stroke={MODEL_COLORS[model].dot} strokeWidth={2} animate={doAnimate.current} />
+          <AnimatedPath d={d} stroke={MODEL_COLORS[model].dot} strokeWidth={2} animate={shouldAnimateChart} />
           {hover && (
             <>
               <line x1={hover.svgX} y1={MT} x2={hover.svgX} y2={MT + inH} stroke="rgba(255,255,255,0.18)" strokeWidth={1} strokeDasharray="3,3" />
@@ -794,8 +796,11 @@ function SSCondBlock({ cond, index }) {
   const [ref, inView] = useInView(0.08);
   const [visible, setVisible] = useState(SEEN.ssMetrics);
   useEffect(() => {
-    if (inView && !visible) { SEEN.ssMetrics = true; setVisible(true); }
-  }, [inView]);
+    if (!inView || visible) return;
+    SEEN.ssMetrics = true;
+    const raf = requestAnimationFrame(() => setVisible(true));
+    return () => cancelAnimationFrame(raf);
+  }, [inView, visible]);
   const sc2 = v => v!==null&&v>=0.7?"var(--ok)":v!==null&&v>=0.5?"var(--warn)":"var(--bad)";
   const fmt = v => v!==null?`${(v*100).toFixed(0)}%`:"-";
   const scLRp = v => v>=10?"var(--ok)":v>=5?"var(--warn)":"var(--bad)";
@@ -1371,8 +1376,14 @@ function DemographicSubgroupSection() {
 /* ─── Severity scatter plot: predicted vs actual ─── */
 function SeverityScatterSection() {
   const [ref, inView] = useInView(0.05);
+  const [animateScatter] = useState(() => !SEEN.scatterSection);
   const [visible, setVisible] = useState(SEEN.scatterSection);
-  useEffect(() => { if (inView && !visible) { SEEN.scatterSection = true; setVisible(true); } }, [inView]); // eslint-disable-line
+  useEffect(() => {
+    if (!inView || visible) return;
+    SEEN.scatterSection = true;
+    const raf = requestAnimationFrame(() => setVisible(true));
+    return () => cancelAnimationFrame(raf);
+  }, [inView, visible]);
   const [prompt, setPrompt] = useState("std");
   const [activeModel, setActiveModel] = useState("ChatGPT");
 
@@ -1432,7 +1443,16 @@ function SeverityScatterSection() {
         {/* Clipped data points */}
         <g clipPath="url(#scatter-plot-clip)">
           {points.map((pt, i) => (
-            <circle key={i} cx={px(pt.gt)+pt.jx} cy={py(pt.pred)+pt.jy} r={3} fill={col} opacity={0.72}/>
+            <circle
+              key={`${activeModel}-${prompt}-${i}`}
+              className={animateScatter ? "scatter-dot" : ""}
+              style={{ "--dot-delay": `${i * 0.018}s` }}
+              cx={px(pt.gt)+pt.jx}
+              cy={py(pt.pred)+pt.jy}
+              r={3}
+              fill={col}
+              opacity={0.72}
+            />
           ))}
         </g>
         {/* r / MAE in right margin */}
@@ -1454,16 +1474,24 @@ function GraphsPage() {
   const [cotEverOpened, setCotEverOpened] = useState(false);
   const [confEverRight, setConfEverRight] = useState(false);
   const nOpen = (stdOpen ? 1 : 0) + (cotOpen ? 1 : 0);
-  const doAnimate = useRef(!SEEN.graphs);
-  const [barsVisible, setBarsVisible] = useState(SEEN.graphs);
+  const [shouldAnimateGraphs, setShouldAnimateGraphs] = useState(() => !SEEN.graphs);
+  const [barsVisible, setBarsVisible] = useState(() => SEEN.graphs || !shouldAnimateGraphs);
   useEffect(() => {
-    if (!doAnimate.current) { setBarsVisible(true); return; }
+    if (!shouldAnimateGraphs) return;
     SEEN.graphs = true;
     const raf = requestAnimationFrame(() => setBarsVisible(true));
-    return () => cancelAnimationFrame(raf);
-  }, []);
+    const timer = setTimeout(() => setShouldAnimateGraphs(false), 1500);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+    };
+  }, [shouldAnimateGraphs]);
 
-  useEffect(() => { if (nOpen >= 2) setConfEverRight(true); }, [nOpen]);
+  useEffect(() => {
+    if (nOpen < 2 || confEverRight) return;
+    const raf = requestAnimationFrame(() => setConfEverRight(true));
+    return () => cancelAnimationFrame(raf);
+  }, [nOpen, confEverRight]);
 
   const toggleStd = () => setStdOpen(v => { if (!v) setStdEverOpened(true); return !v; });
   const toggleCot = () => setCotOpen(v => { if (!v) setCotEverOpened(true); return !v; });
@@ -1531,8 +1559,8 @@ function GraphsPage() {
               })()}
             </g>
             <g className={`bar-label-svg-anim${barsVisible ? " bar-visible" : ""}`} style={{ "--bl-delay": `${mi * 0.12 + 0.45}s` }}>
-              <text x={stdX + bw / 2} y={bY(ciS.high) - 7} textAnchor="middle" fontSize={12} fill={MODEL_COLORS[m].dot}><AnimatedNum value={stdV} duration={700} delay={mi * 0.12} run={doAnimate.current} /></text>
-              <text x={cotX + bw / 2} y={bY(ciC.high) - 7} textAnchor="middle" fontSize={12} fill={MODEL_COLORS[m].dot} opacity={0.7}><AnimatedNum value={cotV} duration={700} delay={mi * 0.12 + 0.06} run={doAnimate.current} /></text>
+              <text x={stdX + bw / 2} y={bY(ciS.high) - 7} textAnchor="middle" fontSize={12} fill={MODEL_COLORS[m].dot}><AnimatedNum value={stdV} duration={700} delay={mi * 0.12} run={shouldAnimateGraphs} /></text>
+              <text x={cotX + bw / 2} y={bY(ciC.high) - 7} textAnchor="middle" fontSize={12} fill={MODEL_COLORS[m].dot} opacity={0.7}><AnimatedNum value={cotV} duration={700} delay={mi * 0.12 + 0.06} run={shouldAnimateGraphs} /></text>
             </g>
             <text x={cx} y={BH - BMB + 20} textAnchor="middle" fontSize={13} fill="var(--ink-soft)">{m}</text>
           </g>
@@ -1556,7 +1584,7 @@ function GraphsPage() {
       ))}
       <line x1={LML} y1={LMT + lInH} x2={LML + lInW} y2={LMT + lInH} stroke="rgba(255,255,255,0.15)" strokeWidth={1} />
       {MODELS.map((m, mi) => (
-        <AnimatedPath key={m} d={makePath(m, prompt)} stroke={MODEL_COLORS[m].dot} strokeWidth={1.8} opacity={0.85} delay={mi * 0.15} animate={doAnimate.current} />
+        <AnimatedPath key={m} d={makePath(m, prompt)} stroke={MODEL_COLORS[m].dot} strokeWidth={1.8} opacity={0.85} delay={mi * 0.15} animate={shouldAnimateGraphs} />
       ))}
       {MOCK_DATA.map((_, i) => {
         if (i % 4 !== 0 && i !== MOCK_DATA.length - 1) return null;
@@ -1573,7 +1601,7 @@ function GraphsPage() {
   );
 
   return (
-    <div className="graphs-page">
+    <div className={`graphs-page${shouldAnimateGraphs ? " graphs-animating" : ""}`}>
 
       {/* ── Top: 2 columns ── */}
       <div className="graphs-two-col">
@@ -1650,7 +1678,7 @@ function GraphsPage() {
   );
 }
 
-function ModelAnswerTable({ model, prompt }) {
+function ModelAnswerTable({ model, prompt, rows = MOCK_DATA }) {
   return (
     <section className="data-table-card">
       <div className="data-table-title">
@@ -1672,7 +1700,12 @@ function ModelAnswerTable({ model, prompt }) {
             </tr>
           </thead>
           <tbody>
-            {MOCK_DATA.map(row => {
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={6} className="empty-table-cell">No matching images</td>
+              </tr>
+            )}
+            {rows.map(row => {
               const answer = row.models[model][prompt];
               const total = totalScore(answer, row.ground_truth);
               return (
@@ -1697,6 +1730,20 @@ const groundTruthData = () => Object.fromEntries(MOCK_DATA.map(row => [row.id, {
 
 const rawResponsesData = () => Object.fromEntries(MOCK_DATA.map(row => [row.id, row.models]));
 
+/* Pre-built search strings — computed once at module load, not every render */
+const ROW_SEARCH_STRINGS = MOCK_DATA.map(row => {
+  const conditionText = CONDS.flatMap(cond => [COND_SHORT[cond], COND_LABELS[cond], row.ground_truth[cond]]).join(" ");
+  const modelText = MODELS.flatMap(model => PROMPTS.flatMap(prompt => {
+    const answer = row.models[model][prompt];
+    return [model, prompt, ...CONDS.map(cond => answer[cond]), answer.severity];
+  })).join(" ");
+  return `${row.id} ${row.sex} ${row.age} ${row.ground_truth.severity} ${conditionText} ${modelText}`.toLowerCase();
+});
+
+/* Pre-serialized JSON strings — computed once at module load */
+const GROUND_TRUTH_JSON = JSON.stringify(groundTruthData(), null, 2);
+const RAW_RESPONSES_JSON = JSON.stringify(rawResponsesData(), null, 2);
+
 const scoresData = () => Object.fromEntries(MOCK_DATA.map(row => [
   row.id,
   Object.fromEntries(MODELS.map(model => [
@@ -1713,6 +1760,9 @@ const scoresData = () => Object.fromEntries(MOCK_DATA.map(row => [
     })),
   ])),
 ]));
+
+const SCORES_JSON = JSON.stringify(scoresData(), null, 2);
+const DATASET_JSON = JSON.stringify(rawData, null, 2);
 
 /* ─── Tree node for the Tree view mode ─── */
 function TreeNode({ keyName, value, depth, defaultOpen = false }) {
@@ -1826,18 +1876,200 @@ function JsonFilesViewer({ files }) {
   );
 }
 
+function DataDropdown({ id, label, value, options, open, onOpenChange, onChange, className = "" }) {
+  const selected = options.find(option => option.value === value) || options[0];
+  return (
+    <div className={`data-filter-field data-dropdown-field ${className}`} onBlur={(e) => {
+      if (!e.currentTarget.contains(e.relatedTarget)) onOpenChange(false);
+    }}>
+      <span>{label}</span>
+      <button
+        id={id}
+        type="button"
+        className={`data-dropdown-trigger${open ? " open" : ""}`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => onOpenChange(!open)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") onOpenChange(false);
+          if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onOpenChange(true);
+          }
+        }}
+      >
+        <span>{selected.label}</span>
+        <span className="expand-icon" aria-hidden="true" style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)" }}>›</span>
+      </button>
+      {open && (
+        <div className="data-dropdown-menu" role="listbox" aria-labelledby={id}>
+          {options.map(option => (
+            <button
+              key={option.value}
+              type="button"
+              role="option"
+              aria-selected={option.value === value}
+              className={`data-dropdown-option${option.value === value ? " selected" : ""}`}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                onChange(option.value);
+                onOpenChange(false);
+              }}
+            >
+              <span>{option.label}</span>
+              {option.value === value && <span className="data-dropdown-check" aria-hidden="true">✓</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function GroundTruthPage() {
-  const groundTruthJson = JSON.stringify(groundTruthData(), null, 2);
-  const rawResponsesJson = JSON.stringify(rawResponsesData(), null, 2);
-  const scoresJson = JSON.stringify(scoresData(), null, 2);
-  const datasetJson = JSON.stringify(rawData, null, 2);
+  const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [openFilter, setOpenFilter] = useState(null);
+  const [filters, setFilters] = useState({
+    sex: "all",
+    condition: "all",
+    status: "all",
+    severity: "all",
+  });
+  const [openSections, setOpenSections] = useState({
+    ground: true,
+    std: false,
+    cot: false,
+    overview: true,
+    prompts: false,
+    json: false,
+  });
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(query), 150);
+    return () => clearTimeout(t);
+  }, [query]);
+  const q = debouncedQuery.trim().toLowerCase();
+  const sexOptions = [
+    { value: "all", label: "All" },
+    { value: "M", label: "Male" },
+    { value: "F", label: "Female" },
+  ];
+  const conditionOptions = [
+    { value: "all", label: "Any" },
+    ...CONDS.map(cond => ({ value: cond, label: COND_SHORT[cond] })),
+  ];
+  const statusOptions = [
+    { value: "present", label: "Present" },
+    { value: "absent", label: "Absent" },
+  ];
+  const severityOptions = [
+    { value: "all", label: "All" },
+    ...[1,2,3,4,5].map(sev => ({ value: String(sev), label: `${sev}/5` })),
+  ];
+  const hasFilters = Object.values(filters).some(v => v !== "all");
+  const setFilterValue = (key, value) => setFilters(prev => {
+    if (key === "condition") {
+      return { ...prev, condition: value, status: value === "all" ? "all" : prev.status === "all" ? "present" : prev.status };
+    }
+    return { ...prev, [key]: value };
+  });
+  const resetFilters = () => {
+    setQuery("");
+    setDebouncedQuery("");
+    setFilters({ sex: "all", condition: "all", status: "all", severity: "all" });
+  };
+  const dataRows = useMemo(() => MOCK_DATA.filter((row, i) => {
+    if (filters.sex !== "all" && row.sex !== filters.sex) return false;
+    if (filters.severity !== "all" && row.ground_truth.severity !== Number(filters.severity)) return false;
+    if (filters.condition !== "all") {
+      const status = row.ground_truth[filters.condition];
+      const expectedStatus = filters.status === "all" ? "present" : filters.status;
+      if (status !== expectedStatus) return false;
+    }
+    if (q) return ROW_SEARCH_STRINGS[i].includes(q);
+    return true;
+  }), [q, filters]);
+  const toggleSection = (key) => setOpenSections(prev => ({ ...prev, [key]: !prev[key] }));
+  const setAllSections = (open) => setOpenSections({
+    ground: open,
+    std: open,
+    cot: open,
+    overview: open,
+    prompts: open,
+    json: open,
+  });
 
   return (
     <div className="page-wrap ground-wrap">
       <div className="gw-container">
-        <div className="section-label">Ground truth - reference standard</div>
-        <div className="gt-list">
-          {MOCK_DATA.map(row => (
+        <div className="data-toolbar">
+          <div className="data-search-row">
+            <label className="data-search">
+              <span className="sr-only">Search data</span>
+              <span className="data-search-mark" aria-hidden="true">Search</span>
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="CXR_0001, Claude, age 45, severity 3"
+              />
+            </label>
+            <span className="data-result-count">{dataRows.length}/{MOCK_DATA.length} images</span>
+          </div>
+          <div className="data-filter-grid" aria-label="Data filters">
+            <DataDropdown
+              id="data-filter-sex"
+              label="Sex"
+              value={filters.sex}
+              options={sexOptions}
+              open={openFilter === "sex"}
+              onOpenChange={(open) => setOpenFilter(open ? "sex" : null)}
+              onChange={(value) => setFilterValue("sex", value)}
+            />
+            <DataDropdown
+              id="data-filter-condition"
+              label="Condition"
+              value={filters.condition}
+              options={conditionOptions}
+              open={openFilter === "condition"}
+              onOpenChange={(open) => setOpenFilter(open ? "condition" : null)}
+              onChange={(value) => setFilterValue("condition", value)}
+            />
+            {filters.condition !== "all" && (
+              <DataDropdown
+                id="data-filter-status"
+                label="Status"
+                value={filters.status === "all" ? "present" : filters.status}
+                options={statusOptions}
+                open={openFilter === "status"}
+                onOpenChange={(open) => setOpenFilter(open ? "status" : null)}
+                onChange={(value) => setFilterValue("status", value)}
+                className="is-status"
+              />
+            )}
+            <DataDropdown
+              id="data-filter-severity"
+              label="Severity"
+              value={filters.severity}
+              options={severityOptions}
+              open={openFilter === "severity"}
+              onOpenChange={(open) => setOpenFilter(open ? "severity" : null)}
+              onChange={(value) => setFilterValue("severity", value)}
+            />
+          </div>
+          <div className="data-section-actions">
+            <button type="button" className="data-mini-btn" onClick={resetFilters} disabled={!query && !hasFilters}>Reset</button>
+            <button type="button" className="data-mini-btn" onClick={() => setAllSections(true)}>Open all</button>
+            <button type="button" className="data-mini-btn" onClick={() => setAllSections(false)}>Collapse all</button>
+          </div>
+        </div>
+        <button type="button" className="data-section-toggle" aria-expanded={openSections.ground} onClick={() => toggleSection("ground")}>
+          <span className="section-label">Ground truth - reference standard</span>
+          <span className="data-section-meta">{dataRows.length} images</span>
+          <span className="expand-icon" aria-hidden="true" style={{ transform: openSections.ground ? "rotate(90deg)" : "rotate(0deg)" }}>›</span>
+        </button>
+        <div className="gt-list" hidden={!openSections.ground}>
+          {dataRows.map(row => (
             <div key={`gt-${row.id}`} className="gt-list-card">
               <span className="img-id">{row.id}</span>
               <div className="gt-list-pills">
@@ -1852,26 +2084,38 @@ function GroundTruthPage() {
               <span className="gt-sev-mini">{row.sex} · {row.age}y</span>
             </div>
           ))}
+          {dataRows.length === 0 && <div className="empty-data-state">No matching images</div>}
         </div>
 
         <div className="data-section">
-          <div className="section-label">Standard prompt answers</div>
-          <div className="data-table-grid">
-            {MODELS.map(model => <ModelAnswerTable key={`std-${model}`} model={model} prompt="std" />)}
+          <button type="button" className="data-section-toggle" aria-expanded={openSections.std} onClick={() => toggleSection("std")}>
+            <span className="section-label">Standard prompt answers</span>
+            <span className="data-section-meta">{MODELS.length} models</span>
+            <span className="expand-icon" aria-hidden="true" style={{ transform: openSections.std ? "rotate(90deg)" : "rotate(0deg)" }}>›</span>
+          </button>
+          <div className="data-table-grid" hidden={!openSections.std}>
+            {MODELS.map(model => <ModelAnswerTable key={`std-${model}`} model={model} prompt="std" rows={dataRows} />)}
           </div>
         </div>
 
         <div className="data-section">
-          <div className="section-label">Chain-of-thought prompt answers</div>
-          <div className="data-table-grid">
-            {MODELS.map(model => <ModelAnswerTable key={`cot-${model}`} model={model} prompt="cot" />)}
+          <button type="button" className="data-section-toggle" aria-expanded={openSections.cot} onClick={() => toggleSection("cot")}>
+            <span className="section-label">Chain-of-thought prompt answers</span>
+            <span className="data-section-meta">{MODELS.length} models</span>
+            <span className="expand-icon" aria-hidden="true" style={{ transform: openSections.cot ? "rotate(90deg)" : "rotate(0deg)" }}>›</span>
+          </button>
+          <div className="data-table-grid" hidden={!openSections.cot}>
+            {MODELS.map(model => <ModelAnswerTable key={`cot-${model}`} model={model} prompt="cot" rows={dataRows} />)}
           </div>
         </div>
 
         {/* Dataset overview */}
         <div className="data-section">
-          <div className="section-label">Dataset overview</div>
-          <div className="dataset-grid">
+          <button type="button" className="data-section-toggle" aria-expanded={openSections.overview} onClick={() => toggleSection("overview")}>
+            <span className="section-label">Dataset overview</span>
+            <span className="expand-icon" aria-hidden="true" style={{ transform: openSections.overview ? "rotate(90deg)" : "rotate(0deg)" }}>›</span>
+          </button>
+          <div className="dataset-grid" hidden={!openSections.overview}>
             {[
               { label: "Source",       val: "NIH ChestX-ray14",                                          note: "Wang et al., 2017" },
               { label: "Total images", val: `${MOCK_DATA.length}`,                                      note: "from NIH ChestX-ray14 (112,120 total)" },
@@ -1885,8 +2129,8 @@ function GroundTruthPage() {
               </div>
             ))}
           </div>
-          <div className="section-sublabel">Models evaluated</div>
-          <div className="model-ver-grid">
+          <div className="section-sublabel" hidden={!openSections.overview}>Models evaluated</div>
+          <div className="model-ver-grid" hidden={!openSections.overview}>
             {[
               { name: "ChatGPT",  version: "gpt-5.5",            temp: 0 },
               { name: "Claude",  version: "claude-opus-4-7",   temp: 0 },
@@ -1901,8 +2145,8 @@ function GroundTruthPage() {
               </div>
             ))}
           </div>
-          <div className="section-sublabel">Disease prevalence in sample</div>
-          <div className="prev-grid">
+          <div className="section-sublabel" hidden={!openSections.overview}>Disease prevalence in sample</div>
+          <div className="prev-grid" hidden={!openSections.overview}>
             {[
               { cond: "Pneumothorax",    prev: parseFloat((MOCK_DATA.filter(d => d.ground_truth.pneumothorax === "present").length / MOCK_DATA.length * 100).toFixed(1)),    color: "#f87171" },
               { cond: "Pleural Effusion",prev: parseFloat((MOCK_DATA.filter(d => d.ground_truth.pleural_effusion === "present").length / MOCK_DATA.length * 100).toFixed(1)), color: "#fbbf24" },
@@ -1922,8 +2166,11 @@ function GroundTruthPage() {
 
         {/* Prompts */}
         <div className="data-section">
-          <div className="section-label">Prompts used</div>
-          <div className="prompt-display-grid">
+          <button type="button" className="data-section-toggle" aria-expanded={openSections.prompts} onClick={() => toggleSection("prompts")}>
+            <span className="section-label">Prompts used</span>
+            <span className="expand-icon" aria-hidden="true" style={{ transform: openSections.prompts ? "rotate(90deg)" : "rotate(0deg)" }}>›</span>
+          </button>
+          <div className="prompt-display-grid" hidden={!openSections.prompts}>
             {[
               {
                 key: "std", label: "Standard prompt", short: "STD",
@@ -1984,13 +2231,18 @@ Provide your final answer in this JSON format:
         </div>
 
         <div className="ground-json">
-          <div className="section-label">JSON data</div>
-          <JsonFilesViewer files={[
-            { name: "dataset.json",       desc: "Complete raw dataset - ground truth + all model responses",  code: datasetJson,      data: rawData },
-            { name: "ground_truth.json",  desc: "Ground truth data used by the image table",                  code: groundTruthJson,  data: groundTruthData() },
-            { name: "raw_responses.json", desc: "All model responses grouped by image, model, and prompt",    code: rawResponsesJson, data: rawResponsesData() },
-            { name: "scores.json",        desc: "Per-condition, severity, and total scores",                  code: scoresJson,       data: scoresData() },
-          ]} />
+          <button type="button" className="data-section-toggle" aria-expanded={openSections.json} onClick={() => toggleSection("json")}>
+            <span className="section-label">JSON data</span>
+            <span className="expand-icon" aria-hidden="true" style={{ transform: openSections.json ? "rotate(90deg)" : "rotate(0deg)" }}>›</span>
+          </button>
+          <div hidden={!openSections.json}>
+            <JsonFilesViewer files={[
+              { name: "dataset.json",       desc: "Complete raw dataset - ground truth + all model responses",  code: DATASET_JSON,       data: rawData },
+              { name: "ground_truth.json",  desc: "Ground truth data used by the image table",                  code: GROUND_TRUTH_JSON,  data: groundTruthData() },
+              { name: "raw_responses.json", desc: "All model responses grouped by image, model, and prompt",    code: RAW_RESPONSES_JSON, data: rawResponsesData() },
+              { name: "scores.json",        desc: "Per-condition, severity, and total scores",                  code: SCORES_JSON,        data: scoresData() },
+            ]} />
+          </div>
         </div>
       </div>
     </div>
@@ -2003,23 +2255,40 @@ export default function App() {
   const [filter, setFilter] = useState("all");
   const [condRef, condVisible] = useInView(0.1);
   const [jsonRef, jsonVisible] = useInView(0.05);
-  const doAnimateCards = useRef(!SEEN.dashboard);
-  const [cardsVisible, setCardsVisible] = useState(SEEN.dashboard);
+  const [shouldAnimateCards, setShouldAnimateCards] = useState(() => !SEEN.dashboard);
+  const [cardsVisible, setCardsVisible] = useState(() => SEEN.dashboard || !shouldAnimateCards);
   useEffect(() => {
-    if (!doAnimateCards.current) { setCardsVisible(true); return; }
+    if (!shouldAnimateCards) return;
     SEEN.dashboard = true;
     const raf = requestAnimationFrame(() => {
-      doAnimateCards.current = false;
       setCardsVisible(true);
     });
-    return () => cancelAnimationFrame(raf);
-  }, []);
+    const timer = setTimeout(() => setShouldAnimateCards(false), 1300);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+    };
+  }, [shouldAnimateCards]);
 
   const switchTab = (nextTab) => {
     setTab(nextTab);
     if (window.location.hash !== TAB_HASH[nextTab]) {
       history.replaceState(null, "", `${window.location.pathname}${window.location.search}${TAB_HASH[nextTab]}`);
     }
+  };
+
+  const focusTabAt = (index) => {
+    const next = TABS[(index + TABS.length) % TABS.length][0];
+    switchTab(next);
+    requestAnimationFrame(() => document.getElementById(tabId(next))?.focus());
+  };
+
+  const handleTabsKeyDown = (e) => {
+    const activeIndex = TABS.findIndex(([t]) => t === tab);
+    if (e.key === "ArrowRight") { e.preventDefault(); focusTabAt(activeIndex + 1); }
+    else if (e.key === "ArrowLeft") { e.preventDefault(); focusTabAt(activeIndex - 1); }
+    else if (e.key === "Home") { e.preventDefault(); focusTabAt(0); }
+    else if (e.key === "End") { e.preventDefault(); focusTabAt(TABS.length - 1); }
   };
 
   const filtered = filter === "all" ? MOCK_DATA : MOCK_DATA.filter(d => {
@@ -2037,15 +2306,27 @@ export default function App() {
           <div className="header-title">CXR Benchmark</div>
           <div className="header-sub">Chest X-ray · {MOCK_DATA.length} images · 4 models · 3 conditions · 2 prompts</div>
         </div>
-        <div className="tabs">
+        <div className="tabs" role="tablist" aria-label="Primary sections" onKeyDown={handleTabsKeyDown}>
           {TABS.map(([t,l]) => (
-            <button key={t} onClick={() => switchTab(t)} className={`tab-btn${tab === t ? " active" : ""}`}>{l}</button>
+            <button
+              key={t}
+              id={tabId(t)}
+              type="button"
+              role="tab"
+              aria-selected={tab === t}
+              aria-current={tab === t ? "page" : undefined}
+              aria-controls={tabPanelId(t)}
+              onClick={() => switchTab(t)}
+              className={`tab-btn${tab === t ? " active" : ""}`}
+            >
+              {l}
+            </button>
           ))}
         </div>
       </div>
 
       {tab === "dashboard" && (
-        <div className="dash-wrap">
+        <div id={tabPanelId("dashboard")} role="tabpanel" aria-labelledby={tabId("dashboard")} className="dash-wrap">
 
           {/* Score cards: split STD vs CoT */}
           <div className="score-grid">
@@ -2064,7 +2345,7 @@ export default function App() {
                   {PROMPTS.map(p => (
                     <div key={p} className="score-half">
                       <div className="score-half-label">{PROMPT_SHORT[p]}</div>
-                      <div className="score-num"><AnimatedNum value={parseFloat(ACCURACY[m][p])} run={doAnimateCards.current} /><span className="score-pct">/1.0</span></div>
+                      <div className="score-num"><AnimatedNum value={parseFloat(ACCURACY[m][p])} run={shouldAnimateCards} /><span className="score-pct">/1.0</span></div>
                     </div>
                   ))}
                 </div>
@@ -2073,17 +2354,17 @@ export default function App() {
                 <div className="kappa-row split">
                   <span className="kappa-label">classification</span>
                   <div className="kappa-split">
-                    <span className="kappa-val"><AnimatedNum value={parseFloat(avgClass(m, "std"))} run={doAnimateCards.current} /></span>
+                    <span className="kappa-val"><AnimatedNum value={parseFloat(avgClass(m, "std"))} run={shouldAnimateCards} /></span>
                     <span className="kappa-sep">|</span>
-                    <span className="kappa-val"><AnimatedNum value={parseFloat(avgClass(m, "cot"))} run={doAnimateCards.current} /></span>
+                    <span className="kappa-val"><AnimatedNum value={parseFloat(avgClass(m, "cot"))} run={shouldAnimateCards} /></span>
                   </div>
                 </div>
                 <div className="kappa-row split">
                   <span className="kappa-label">avg sev score</span>
                   <div className="kappa-split">
-                    <span className="kappa-val"><AnimatedNum value={parseFloat(avgSev(m, "std"))} run={doAnimateCards.current} /></span>
+                    <span className="kappa-val"><AnimatedNum value={parseFloat(avgSev(m, "std"))} run={shouldAnimateCards} /></span>
                     <span className="kappa-sep">|</span>
-                    <span className="kappa-val"><AnimatedNum value={parseFloat(avgSev(m, "cot"))} run={doAnimateCards.current} /></span>
+                    <span className="kappa-val"><AnimatedNum value={parseFloat(avgSev(m, "cot"))} run={shouldAnimateCards} /></span>
                   </div>
                 </div>
                 {(() => {
@@ -2302,14 +2583,18 @@ export default function App() {
       )}
 
       {tab === "table" && (
-        <div className="table-wrap">
+        <div id={tabPanelId("table")} role="tabpanel" aria-labelledby={tabId("table")} className="table-wrap">
           <div className="filter-row">
+            <div className="filter-controls" role="group" aria-label="Image filter">
             {[["all","All"],["wrong","Has errors"],["correct","All correct"]].map(([f,l]) => (
-              <button key={f} onClick={() => setFilter(f)} className={`filter-btn${filter === f ? " active" : ""}`}>{l}</button>
+              <button key={f} type="button" aria-pressed={filter === f} onClick={() => setFilter(f)} className={`filter-btn${filter === f ? " active" : ""}`}>{l}</button>
             ))}
+            </div>
             <span className="filter-note">[ "all correct" = every model scored 1 on all conditions ] · <span style={{ opacity: 0.65 }}>■ boxes = STD conditions · hover for STD/CoT</span></span>
-            <span className="filter-count">{filtered.length} images</span>
-            <button className="export-btn" onClick={() => downloadFile(tableToCSV(filtered), "cxr_benchmark.csv", "text/csv")}>↓ CSV</button>
+            <div className="filter-actions">
+              <span className="filter-count">{filtered.length} images</span>
+              <button className="export-btn" onClick={() => downloadFile(tableToCSV(filtered), "cxr_benchmark.csv", "text/csv")}>↓ CSV</button>
+            </div>
           </div>
           <div className="table-scroll">
             <table>
@@ -2449,8 +2734,16 @@ export default function App() {
           </div>
         </div>
       )}
-      {tab === "graphs" && <GraphsPage />}
-      {tab === "data" && <GroundTruthPage />}
+      {tab === "graphs" && (
+        <div id={tabPanelId("graphs")} role="tabpanel" aria-labelledby={tabId("graphs")}>
+          <GraphsPage />
+        </div>
+      )}
+      {tab === "data" && (
+        <div id={tabPanelId("data")} role="tabpanel" aria-labelledby={tabId("data")}>
+          <GroundTruthPage />
+        </div>
+      )}
       <footer className="footer">
         CXR Benchmark Prototype · Built by{" "}
         <a href="https://github.com/2i03e2f" target="_blank" rel="noreferrer" className="footer-link">
