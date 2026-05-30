@@ -50,10 +50,24 @@
   outline-offset: 2px;
 }
 
+html {
+  background: var(--bg);
+  color-scheme: dark;
+}
+
+html,
 body {
   margin: 0;
   padding: 0;
   overflow-x: hidden;
+  min-height: 100%;
+  background: var(--bg);
+  overscroll-behavior-y: none;
+}
+
+#root {
+  min-height: 100svh;
+  background: var(--bg);
 }
 
 /* numeric-tabular for all monetary/scoring text */
@@ -74,8 +88,9 @@ body {
     radial-gradient(ellipse 100% 50% at 50% 0%, rgba(232,154,92,0.05), transparent 60%),
     radial-gradient(ellipse 80% 40% at 0% 100%, rgba(122,195,163,0.03), transparent 60%);
   min-height: 100vh;
+  min-height: 100svh;
   color: var(--ink);
-  padding: 0 0 1rem;
+  padding: env(safe-area-inset-top) 0 calc(1rem + env(safe-area-inset-bottom));
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   letter-spacing: -0.005em;
