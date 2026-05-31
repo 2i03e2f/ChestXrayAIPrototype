@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Claude Code & audit tools
+.claude/
+.codex-audit-screens/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
